@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>funnet-gwanak-agent</AssemblyName>
+    <RootNamespace>Funnet.Gwanak.Agent</RootNamespace>
+    <Version>0.4.0</Version>
+    <Product>Funnet Gwanak Agent</Product>
+    <Company>Funnet</Company>
+    <Description>관악 장비 상태 및 UME 제어 Agent</Description>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>assets\funnet-tray-icon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="assets\funnet-tray-icon.ico" LogicalName="FunnetTrayIcon" />
+  </ItemGroup>
+</Project>

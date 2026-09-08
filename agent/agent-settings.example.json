@@ -1,0 +1,7 @@
+{
+  "serverBaseUrl": "https://control.example.com",
+  "enrollmentKey": "replace-with-device-enrollment-key",
+  "localName": "관악-장비-001",
+  "heartbeatSeconds": 30,
+  "commandPollSeconds": 5
+}

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>funnet-gwanak-agent-setup</AssemblyName>
+    <RootNamespace>Funnet.Gwanak.Agent.Installer</RootNamespace>
+    <Version>0.4.0</Version>
+    <Product>Funnet Gwanak Agent Installer</Product>
+    <Company>Funnet</Company>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <ApplicationIcon>assets\funnet-tray-icon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="payload\funnet-gwanak-agent.exe" LogicalName="AgentPayload" />
+    <EmbeddedResource Include="assets\funnet-logo.png" LogicalName="FunnetLogo" />
+    <EmbeddedResource Include="assets\funnet-tray-icon.ico" LogicalName="FunnetTrayIcon" />
+  </ItemGroup>
+</Project>

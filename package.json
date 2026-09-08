@@ -1,0 +1,13 @@
+{
+  "name": "funnet-gwanak-control",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server/server.mjs",
+    "test": "node --test server/server.test.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

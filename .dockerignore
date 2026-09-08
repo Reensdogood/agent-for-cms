@@ -1,0 +1,9 @@
+agent/bin
+agent/obj
+installer/bin
+installer/obj
+installer/payload
+dist
+server/data
+.git
+*.log

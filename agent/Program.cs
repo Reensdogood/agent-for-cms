@@ -1,0 +1,52 @@
+using System.Text.Json;
+using Funnet.Gwanak.Agent.Infrastructure;
+using Funnet.Gwanak.Agent.Services;
+
+namespace Funnet.Gwanak.Agent;
+
+internal static class Program
+{
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        ApplicationConfiguration.Initialize();
+
+        if (args.Any(value => string.Equals(value, "--self-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            var selfTestSettings = AgentSettings.Load();
+            var selfTestIdentityStore = new DeviceIdentityStore();
+            var collector = new HealthCollector(selfTestSettings, selfTestIdentityStore.LoadOrCreate());
+            var health = collector.Collect();
+            Console.WriteLine(JsonSerializer.Serialize(health, JsonDefaults.Indented));
+            return;
+        }
+
+        if (args.Any(value => string.Equals(value, "--once", StringComparison.OrdinalIgnoreCase)))
+        {
+            var onceSettings = AgentSettings.Load();
+            var onceIdentityStore = new DeviceIdentityStore();
+            var onceIdentity = onceIdentityStore.LoadOrCreate();
+            var collector = new HealthCollector(onceSettings, onceIdentity);
+            var health = collector.Collect();
+            using var api = new AgentApiClient(onceSettings, onceIdentityStore, onceIdentity);
+            api.EnsureRegisteredAsync(health, CancellationToken.None).GetAwaiter().GetResult();
+            api.SendHeartbeatAsync(health, CancellationToken.None).GetAwaiter().GetResult();
+            var executor = new AgentCommandExecutor(api, collector);
+            executor.ExecutePendingAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Console.WriteLine(JsonSerializer.Serialize(health, JsonDefaults.Indented));
+            return;
+        }
+
+        using var mutex = new Mutex(true, @"Local\funnet-gwanak-agent", out var isFirstInstance);
+        if (!isFirstInstance)
+        {
+            MessageBox.Show("funnet-gwanak-agent가 이미 실행 중입니다.", "Funnet 관악 Agent",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var settings = AgentSettings.Load();
+        var identityStore = new DeviceIdentityStore();
+        Application.Run(new TrayAgentContext(settings, identityStore));
+    }
+}

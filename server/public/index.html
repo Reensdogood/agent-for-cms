@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f5f7">
+  <title>Funnet 에이전트 통합관리</title>
+  <link rel="stylesheet" href="/styles.css?v=3">
+</head>
+<body>
+  <main>
+    <section id="loginView" class="login-shell">
+      <form id="loginForm" class="login-card">
+        <div class="brand-mark" aria-hidden="true"><span></span></div>
+        <p class="eyebrow">FUNNET · AGENT</p>
+        <h1>에이전트 통합관리</h1>
+        <p class="muted">등록된 관리자 계정으로 로그인하세요.</p>
+        <label>아이디<input id="username" autocomplete="username" required autofocus></label>
+        <label>비밀번호
+          <span class="password-field"><input id="password" type="password" autocomplete="current-password" required><button id="togglePassword" type="button" class="text-button" aria-label="비밀번호 표시">보기</button></span>
+        </label>
+        <button id="loginButton" type="submit">로그인</button>
+        <p id="loginError" class="error" role="alert" aria-live="polite"></p>
+        <p class="login-footnote">승인된 운영자만 사용할 수 있습니다.</p>
+      </form>
+    </section>
+
+    <section id="appView" class="workspace" hidden>
+      <aside class="sidebar">
+        <div class="sidebar-brand"><div class="brand-mark small" aria-hidden="true"><span></span></div><div><strong>Funnet</strong><small>에이전트 통합관리</small></div></div>
+        <nav aria-label="주 메뉴">
+          <button class="nav-item active" data-view="dashboard"><span>⌂</span>대시보드</button>
+          <button class="nav-item" data-view="devices"><span>▣</span>장비 관리</button>
+          <button class="nav-item" data-view="schedules"><span>◷</span>실행 스케줄</button>
+          <button class="nav-item" data-view="releases"><span>⇩</span>UME 배포</button>
+          <button class="nav-item" data-view="integrations"><span>↗</span>외부 관리</button>
+          <button class="nav-item admin-only" data-view="users"><span>◉</span>사용자 관리</button>
+        </nav>
+        <div class="sidebar-footer"><span class="live-dot"></span><span>서버 정상</span><button id="logoutButton" class="text-button">로그아웃</button></div>
+      </aside>
+
+      <div class="content-shell">
+        <header class="topbar">
+          <button id="menuButton" class="icon-button" aria-label="메뉴 열기">☰</button>
+          <div><p id="pageEyebrow" class="eyebrow">OVERVIEW</p><h1 id="pageTitle">장비 현황</h1></div>
+          <div class="top-actions"><span id="sessionUser" class="user-chip"></span><button id="refreshButton" class="secondary">새로고침</button></div>
+        </header>
+
+        <section class="page active" data-page="dashboard">
+          <div class="hero-copy"><div><h2>에이전트 운영 상태</h2><p>장비 연결 상태와 UME/i-vision 실행 상태를 분리해서 확인합니다.</p></div><p id="updatedAt" class="muted"></p></div>
+          <section class="summary" aria-label="장비 현황">
+            <article class="total"><span>등록 장비</span><strong id="countTotal">0</strong><small id="countApproved">승인 0 · 대기 0</small></article>
+            <article><span><i class="dot online"></i>Agent 온라인</span><strong id="countOnline">0</strong><small>90초 이내 Heartbeat</small></article>
+            <article><span><i class="dot ume"></i>UME 실행</span><strong id="countUmeRunning">0</strong><small id="countUmeVersion">감지된 버전 없음</small></article>
+            <article><span><i class="dot ivision"></i>i-vision 실행</span><strong id="countIvisionRunning">0</strong><small>현재 실행 감지 기준</small></article>
+          </section>
+          <section class="status-breakdown" aria-label="세부 상태">
+            <article class="panel"><h3>Agent 연결</h3><div id="agentBreakdown" class="metric-list"></div></article>
+            <article class="panel"><h3>앱 실행</h3><div id="appBreakdown" class="metric-list"></div></article>
+            <article class="panel"><h3>지역</h3><div id="regionBreakdown" class="metric-list"></div></article>
+          </section>
+          <section class="panel"><div class="panel-head"><div><h3>확인이 필요한 장비</h3><p>오프라인 또는 승인 대기 장비를 우선 표시합니다.</p></div><button class="secondary jump-button" data-jump="devices">전체 장비 보기</button></div><div id="attentionList" class="attention-list"></div></section>
+          <section class="panel setup-panel">
+            <div class="panel-head">
+              <div><h3>Agent 설치 정보</h3><p>지역별 등록 키를 추가해서 새 현장 PC 등록에 사용합니다.</p></div>
+              <button id="addRegionButton" class="secondary">지역 키 추가</button>
+            </div>
+            <div class="setup-grid">
+              <label>서버 주소<span class="copy-field"><input id="agentServerUrl" readonly><button class="secondary" data-copy="agentServerUrl" type="button">복사</button></span></label>
+            </div>
+            <div id="regionKeyList" class="region-key-list"></div>
+          </section>
+        </section>
+
+        <section class="page" data-page="devices" hidden>
+          <div class="page-actions"><div><h2>장비 관리</h2><p>장비 승인, 이름 수정, 즉시 상태 확인을 관리합니다.</p></div><input id="searchInput" type="search" placeholder="장비명 또는 ID 검색" aria-label="장비 검색"></div>
+          <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>상태</th><th>지역</th><th>장비명</th><th>Device ID</th><th>Agent</th><th>UME</th><th>i-vision</th><th>마지막 응답</th><th>관리</th></tr></thead><tbody id="deviceRows"></tbody></table></div><p id="emptyState" class="empty">등록된 장비가 없습니다.</p></section>
+        </section>
+
+        <section class="page" data-page="schedules" hidden>
+          <div class="page-actions"><div><h2>UME 실행 스케줄</h2><p>대한민국 시간 기준으로 승인된 모든 장비에 실행 명령을 보냅니다.</p></div><button id="addScheduleButton">스케줄 추가</button></div>
+          <div id="scheduleList" class="card-grid"></div>
+        </section>
+
+        <section class="page" data-page="releases" hidden>
+          <div class="page-actions"><div><h2>UME 설치파일 배포</h2><p>Agent는 설치하지 않고 안전하게 다운로드·검증·보관까지만 수행합니다.</p></div></div>
+          <section class="panel upload-panel"><div><h3>새 버전 등록</h3><p><code>UME-release-버전.exe</code> 형식의 정식 설치파일을 선택하세요.</p></div><label class="file-button">파일 선택<input id="releaseFile" type="file" accept=".exe"></label><button id="uploadReleaseButton" disabled>업로드</button><progress id="uploadProgress" max="100" value="0" hidden></progress></section>
+          <div id="releaseList" class="release-list"></div>
+        </section>
+
+        <section class="page" data-page="integrations" hidden>
+          <div class="page-actions"><div><h2>외부 관리</h2><p>운영 도구를 관리자 화면 안에서 엽니다. 서비스가 임베드를 차단하면 현재 창 이동을 사용하세요.</p></div></div>
+          <div class="segment" role="tablist"><button class="active" data-tool="ivision" role="tab">i-vision</button><button data-tool="ume-manager" role="tab">UME 관리자</button></div>
+          <section class="panel integration-panel"><div class="integration-head"><div><h3 id="integrationTitle">i-vision Cloud</h3><p id="integrationUrl">cloud.myivision.com</p></div><a id="integrationFallback" class="secondary button-link" href="https://cloud.myivision.com/">현재 창에서 열기</a></div><iframe id="integrationFrame" title="외부 관리 화면" src="https://cloud.myivision.com/" referrerpolicy="no-referrer"></iframe></section>
+        </section>
+
+        <section class="page" data-page="users" hidden>
+          <div class="page-actions"><div><h2>사용자 관리</h2><p>관리자 계정 추가, 권한, 담당 지역, 사용 여부를 관리합니다.</p></div><button id="addUserButton">사용자 추가</button></div>
+          <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>상태</th><th>아이디</th><th>권한</th><th>담당 지역</th><th>생성일</th><th>관리</th></tr></thead><tbody id="userRows"></tbody></table></div><p id="userEmptyState" class="empty">등록된 사용자가 없습니다.</p></section>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="renameDialog"><form id="renameForm" method="dialog"><div class="dialog-copy"><p class="eyebrow">DEVICE</p><h2>장비 정보 수정</h2><p>현장에서 쉽게 구분할 수 있는 이름을 사용하세요.</p></div><input id="renameDeviceId" type="hidden"><label>장비명<input id="renameDisplayName" maxlength="100" required></label><div class="dialog-actions"><button value="cancel" class="secondary" formnovalidate>취소</button><button value="default">저장</button></div></form></dialog>
+  <dialog id="regionDialog"><form id="regionForm" method="dialog"><div class="dialog-copy"><p class="eyebrow">REGION</p><h2>지역 등록 키 추가</h2><p>새 지역명으로 등록 키를 생성합니다.</p></div><label>지역명<input id="regionName" maxlength="50" placeholder="예: 동작" required></label><div class="dialog-actions"><button value="cancel" class="secondary" formnovalidate>취소</button><button value="default">생성</button></div></form></dialog>
+  <dialog id="userDialog"><form id="userForm" method="dialog"><div class="dialog-copy"><p class="eyebrow">USER</p><h2 id="userDialogTitle">사용자 추가</h2><p>역할에 따라 사용할 수 있는 관리 범위가 달라집니다.</p></div><input id="userId" type="hidden"><label>아이디<input id="userName" maxlength="60" autocomplete="off" required></label><label>비밀번호<input id="userPassword" type="password" minlength="10" autocomplete="new-password" placeholder="수정 시 비워두면 유지"></label><label>권한<select id="userRole"><option value="admin">전체 시스템</option><option value="operator">운영</option><option value="region_manager">지역 관리자</option></select></label><label id="userRegionLabel">담당 지역<select id="userRegion"></select></label><label class="check"><input id="userActive" type="checkbox" checked> 계정 사용</label><div class="dialog-actions"><button value="cancel" class="secondary" formnovalidate>취소</button><button value="default">저장</button></div></form></dialog>
+
+  <dialog id="scheduleDialog"><form id="scheduleForm" method="dialog"><div class="dialog-copy"><p class="eyebrow">SCHEDULE</p><h2>UME 실행 스케줄</h2><p>선택한 요일과 시간에 승인 장비 전체에서 UME를 전체화면으로 엽니다.</p></div><input id="scheduleId" type="hidden"><label>스케줄명<input id="scheduleName" maxlength="100" placeholder="예: 오전 화상회의" required></label><label>실행 시간<input id="scheduleTime" type="time" required></label><fieldset><legend>실행 요일</legend><div class="day-picker"><label><input type="checkbox" name="day" value="1">월</label><label><input type="checkbox" name="day" value="2">화</label><label><input type="checkbox" name="day" value="3">수</label><label><input type="checkbox" name="day" value="4">목</label><label><input type="checkbox" name="day" value="5">금</label><label><input type="checkbox" name="day" value="6">토</label><label><input type="checkbox" name="day" value="0">일</label></div></fieldset><label class="check"><input id="scheduleEnabled" type="checkbox" checked> 스케줄 사용</label><div class="dialog-actions"><button value="cancel" class="secondary" formnovalidate>취소</button><button value="default">저장</button></div></form></dialog>
+
+  <dialog id="confirmDialog"><form method="dialog"><div class="dialog-copy"><p class="eyebrow">CONFIRM</p><h2 id="confirmTitle">작업 확인</h2><p id="confirmMessage"></p></div><div class="dialog-actions"><button value="cancel" class="secondary">취소</button><button id="confirmAccept" value="default">계속</button></div></form></dialog>
+  <script type="module" src="/app.js?v=3"></script>
+</body>
+</html>

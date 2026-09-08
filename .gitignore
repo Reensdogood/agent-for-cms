@@ -1,0 +1,11 @@
+server/data/
+server/packages/
+agent/bin/
+agent/obj/
+agent/agent-settings.json
+installer/bin/
+installer/obj/
+installer/payload/
+dist/
+deploy/.env
+*.log

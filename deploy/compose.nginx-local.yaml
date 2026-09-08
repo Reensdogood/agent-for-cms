@@ -1,0 +1,9 @@
+services:
+  app:
+    ports:
+      - "127.0.0.1:4170:4170"
+    environment:
+      FUNNET_COOKIE_SECURE: "true"
+  caddy:
+    profiles:
+      - disabled
