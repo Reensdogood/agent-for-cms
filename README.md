@@ -13,8 +13,10 @@
 - 장비 자동 등록, 승인 대기, 장비명 수정
 - 30초 Heartbeat와 관리자 즉시 상태 확인
 - Agent/UME 버전, UME 실행 경로, i-vision 실행 여부 보고
-- UME 실행 스케줄 등록과 즉시 실행
+- UME 실행 스케줄 등록, 수정, 사용/해제, 삭제, 전체 즉시 실행
+- 장비별 UME 재실행 명령 전송
 - UME 창 전체화면/최상단 전환 명령
+- UME 콜 수신 시 녹색 참가/수락 버튼 화면 감지와 자동 클릭 시도
 - UME 숨김 처리와 i-vision 전면 복귀 시도
 - 서버에 UME 설치파일 업로드
 - 승인된 장비 전체로 UME 설치파일 다운로드 명령 전송
@@ -65,13 +67,13 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 ## 배포 패키지 빌드
 
 ```powershell
-.\scripts\Build-Release.ps1 -Version 0.4.0
+.\scripts\Build-Release.ps1 -Version 0.8.0 -OutputDirectory dist-0.8.0
 ```
 
-생성물은 `dist` 폴더에 만들어집니다.
+생성물은 지정한 배포 폴더에 만들어집니다.
 
-- `funnet-gwanak-agent-setup-0.4.0.exe`: Windows Agent 설치 프로그램
-- `funnet-gwanak-server-0.4.0.zip`: 서버 배포 패키지
+- `funnet-gwanak-agent-setup-0.8.0.exe`: Windows Agent 설치 프로그램
+- `funnet-gwanak-server-0.8.0.zip`: 서버 배포 패키지
 - `SHA256SUMS.txt`: 배포 파일 해시
 - `agent-settings.example.json`: Agent 설정 예시
 
@@ -79,9 +81,9 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 
 ## 버전 정책
 
-현재 기준 버전은 `0.4.0`입니다. 이후 기능 추가, UI 개선, 서버/Agent 배포 산출물 갱신 시마다 `0.1.0` 단위로 올립니다.
+현재 기준 버전은 `0.8.0`입니다. 이후 기능 추가, UI 개선, 서버/Agent 배포 산출물 갱신 시마다 `0.1.0` 단위로 올립니다.
 
-예: `0.4.0` 다음 버전은 `0.5.0`입니다.
+예: `0.8.0` 다음 버전은 `0.9.0`입니다.
 
 ## 서버 운영 배포
 
@@ -135,4 +137,4 @@ dotnet build .\agent\Funnet.Gwanak.Agent.csproj -c Release
 dotnet build .\installer\Funnet.Gwanak.Agent.Installer.csproj -c Release
 ```
 
-현재 서버 테스트는 로그인, 장비 등록, Heartbeat, 승인, 상태 확인 명령, UME 설치파일 업로드/다운로드/배포, 스케줄 즉시 실행, 정적 페이지와 CSP, 헬스 체크를 검증합니다.
+현재 서버 테스트는 로그인, 장비 등록, Heartbeat, 승인, 상태 확인 명령, UME 설치파일 업로드/다운로드/배포, 스케줄 전체 실행, 스케줄 사용 해제, 스케줄 삭제, 장비별 UME 실행, 정적 페이지와 CSP, 헬스 체크를 검증합니다.

@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>funnet-gwanak-agent</AssemblyName>
     <RootNamespace>Funnet.Gwanak.Agent</RootNamespace>
-    <Version>0.4.0</Version>
+    <Version>0.8.0</Version>
     <Product>Funnet Gwanak Agent</Product>
     <Company>Funnet</Company>
     <Description>관악 장비 상태 및 UME 제어 Agent</Description>

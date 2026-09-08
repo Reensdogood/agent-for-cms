@@ -10,11 +10,13 @@ internal sealed class TrayAgentContext : ApplicationContext
     private readonly DeviceIdentity _identity;
     private readonly HealthCollector _healthCollector;
     private readonly AgentApiClient _apiClient;
+    private readonly UmeWindowController _umeController = new();
     private readonly AgentCommandExecutor _commandExecutor;
     private readonly NotifyIcon _notifyIcon;
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private DateTimeOffset _lastHeartbeat = DateTimeOffset.MinValue;
+    private bool _meetingWindowWasVisible;
     private string _status = "시작 중";
 
     public TrayAgentContext(AgentSettings settings, DeviceIdentityStore identityStore)
@@ -23,7 +25,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         _identity = identityStore.LoadOrCreate();
         _healthCollector = new HealthCollector(settings, _identity);
         _apiClient = new AgentApiClient(settings, identityStore, _identity);
-        _commandExecutor = new AgentCommandExecutor(_apiClient, _healthCollector);
+        _commandExecutor = new AgentCommandExecutor(_apiClient, _healthCollector, _umeController);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem("상태 확인", null, async (_, _) => await SendHealthNowAsync()));
@@ -40,6 +42,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         _notifyIcon.DoubleClick += async (_, _) => await SendHealthNowAsync();
 
         _ = Task.Run(() => RunAsync(_stop.Token));
+        _ = Task.Run(() => WatchUmeAcceptButtonAsync(_stop.Token));
     }
 
     private static Icon LoadTrayIcon()
@@ -68,6 +71,37 @@ internal sealed class TrayAgentContext : ApplicationContext
             }
 
             try { await Task.Delay(TimeSpan.FromSeconds(_settings.CommandPollSeconds), cancellationToken); }
+            catch (OperationCanceledException) { }
+        }
+    }
+
+    private async Task WatchUmeAcceptButtonAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var meetingVisible = _umeController.PrioritizeMeetingWindowIfVisible();
+                if (meetingVisible)
+                {
+                    _meetingWindowWasVisible = true;
+                    SetStatus("UME 화상회의 진행 중");
+                }
+                else if (_meetingWindowWasVisible)
+                {
+                    _meetingWindowWasVisible = false;
+                    var result = _umeController.HideAndRestoreDid();
+                    SetStatus("회의 종료 · i-vision 복귀");
+                    _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
+                }
+
+                var clicked = await _umeController.TryClickForegroundGreenAcceptButtonAsync(cancellationToken);
+                if (clicked) SetStatus("UME 참가 버튼 자동 클릭");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            catch { }
+
+            try { await Task.Delay(650, cancellationToken); }
             catch (OperationCanceledException) { }
         }
     }

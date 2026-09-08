@@ -119,14 +119,14 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   const rejectedRegistration = await fetch(`${base}/api/agent/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Enrollment-Key": "wrong-enrollment-key" },
-    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "거절 장비", machineName: "OLD-KEY", agentVersion: "0.4.0" }),
+    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "거절 장비", machineName: "OLD-KEY", agentVersion: "0.8.0" }),
   });
   assert.equal(rejectedRegistration.status, 401);
 
   const acceptedRegistration = await fetch(`${base}/api/agent/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Enrollment-Key": createdRegion.enrollmentKey },
-    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "동작 신규 장비", machineName: "NEW-KEY", agentVersion: "0.4.0" }),
+    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "동작 신규 장비", machineName: "NEW-KEY", agentVersion: "0.8.0" }),
   });
   assert.equal(acceptedRegistration.status, 201);
 
@@ -141,7 +141,7 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   const heartbeatAfterRotate = await fetch(`${base}/api/agent/heartbeat`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${registered.deviceToken}` },
-    body: JSON.stringify({ localName: "테스트 장비", machineName: "TEST-PC", agentVersion: "0.4.0" }),
+    body: JSON.stringify({ localName: "테스트 장비", machineName: "TEST-PC", agentVersion: "0.8.0" }),
   });
   assert.equal(heartbeatAfterRotate.status, 200);
 
@@ -202,6 +202,34 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   assert.equal((await scheduleRun.json()).queued, 1);
   const activateCommands = await fetch(`${base}/api/agent/commands`, { headers: { Authorization: `Bearer ${registered.deviceToken}` } });
   assert.equal((await activateCommands.json()).commands[0].type, "ume.activate");
+
+  const deviceRun = await fetch(`${base}/api/devices/${registered.deviceId}/run-ume`, {
+    method: "POST",
+    headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+    body: "{}",
+  });
+  assert.equal(deviceRun.status, 202);
+  assert.equal((await deviceRun.json()).queued, 1);
+  const deviceRunCommands = await fetch(`${base}/api/agent/commands`, { headers: { Authorization: `Bearer ${registered.deviceToken}` } });
+  const deviceRunBody = await deviceRunCommands.json();
+  assert.equal(deviceRunBody.commands[0].type, "ume.activate");
+  assert.equal(deviceRunBody.commands[0].payload.deviceOnly, true);
+
+  const scheduleDisable = await fetch(`${base}/api/schedules/${schedule.id}`, {
+    method: "PUT",
+    headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+    body: JSON.stringify({ ...schedule, enabled: false }),
+  });
+  assert.equal(scheduleDisable.status, 200);
+  assert.equal((await scheduleDisable.json()).schedule.enabled, false);
+
+  const scheduleDelete = await fetch(`${base}/api/schedules/${schedule.id}`, {
+    method: "DELETE",
+    headers: { Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken },
+  });
+  assert.equal(scheduleDelete.status, 200);
+  const schedulesAfterDelete = await fetch(`${base}/api/schedules`, { headers: { Cookie: cookie } });
+  assert.equal((await schedulesAfterDelete.json()).schedules.some((item) => item.id === schedule.id), false);
 
   const page = await fetch(base);
   assert.equal(page.status, 200);

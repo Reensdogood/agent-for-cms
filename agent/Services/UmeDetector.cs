@@ -60,8 +60,23 @@ internal sealed class UmeDetector
 
     private static void CollectFromKnownFolders(HashSet<string> executablePaths)
     {
+        var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        foreach (var folder in new[] { Path.Combine(local, "UME"), Path.Combine(local, "UME global") })
+        if (!string.IsNullOrWhiteSpace(local))
+        {
+            folders.Add(Path.Combine(local, "UME"));
+            folders.Add(Path.Combine(local, "UME global"));
+        }
+
+        var profile = Environment.GetEnvironmentVariable("USERPROFILE");
+        if (!string.IsNullOrWhiteSpace(profile))
+        {
+            var realLocal = Path.Combine(profile, "AppData", "Local");
+            folders.Add(Path.Combine(realLocal, "UME"));
+            folders.Add(Path.Combine(realLocal, "UME global"));
+        }
+
+        foreach (var folder in folders)
             CollectExecutables(folder, executablePaths);
     }
 
@@ -72,11 +87,18 @@ internal sealed class UmeDetector
         {
             foreach (var executableName in AllowedExecutables)
             foreach (var path in Directory.EnumerateFiles(root, executableName, SearchOption.AllDirectories))
-                executablePaths.Add(Path.GetFullPath(path));
+            {
+                var fullPath = Path.GetFullPath(path);
+                if (!IsPackagedLocalCachePath(fullPath)) executablePaths.Add(fullPath);
+            }
         }
         catch (UnauthorizedAccessException) { }
         catch (IOException) { }
     }
+
+    private static bool IsPackagedLocalCachePath(string path) =>
+        path.Contains(@"\AppData\Local\Packages\", StringComparison.OrdinalIgnoreCase)
+        && path.Contains(@"\LocalCache\Local\UME", StringComparison.OrdinalIgnoreCase);
 
     private static HashSet<string> RunningUmePaths()
     {

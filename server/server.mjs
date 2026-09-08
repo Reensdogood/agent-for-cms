@@ -836,6 +836,17 @@ async function handleApi(req, res, url) {
     return json(res, 200, { schedule: listSchedules().find((item) => item.id === current.id) });
   }
 
+  if (req.method === "DELETE" && scheduleMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!assertRole(session, res, ["admin", "operator"])) return;
+    const current = db.prepare("SELECT * FROM schedules WHERE id = ?").get(scheduleMatch[1]);
+    if (!current) return json(res, 404, { error: "스케줄을 찾을 수 없습니다." });
+    db.prepare("DELETE FROM schedules WHERE id = ?").run(current.id);
+    audit(session.username, "schedule.delete", current.id, { name: current.name });
+    return json(res, 200, { ok: true });
+  }
+
   const scheduleRunMatch = url.pathname.match(/^\/api\/schedules\/([a-f0-9-]+)\/run$/i);
   if (req.method === "POST" && scheduleRunMatch) {
     const session = requireAdmin(req, res, true);
@@ -901,6 +912,25 @@ async function handleApi(req, res, url) {
       .run(commandId, device.id, now());
     audit(session.username, "health.probe", device.id, { commandId });
     return json(res, 202, { commandId, status: "pending" });
+  }
+
+  const deviceRunUmeMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/run-ume$/i);
+  if (req.method === "POST" && deviceRunUmeMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const device = db.prepare("SELECT id, region_id, approved, display_name FROM devices WHERE id = ?").get(deviceRunUmeMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 실행할 수 있습니다." });
+    if (!device.approved) return json(res, 400, { error: "승인된 장비만 실행할 수 있습니다." });
+    const body = await readJson(req);
+    const commandId = crypto.randomUUID();
+    const scheduleId = body.scheduleId ? String(body.scheduleId).slice(0, 80) : null;
+    const runKey = `manual-device:${crypto.randomUUID()}`;
+    db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'ume.activate', ?, ?)")
+      .run(commandId, device.id, JSON.stringify({ scheduleId, runKey, deviceOnly: true }), now());
+    audit(session.username, "device.run_ume", device.id, { commandId, scheduleId, displayName: device.display_name });
+    return json(res, 202, { commandId, queued: 1, status: "pending" });
   }
 
   json(res, 404, { error: "요청한 API를 찾을 수 없습니다." });

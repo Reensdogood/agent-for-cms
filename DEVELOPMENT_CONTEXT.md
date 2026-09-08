@@ -12,7 +12,7 @@ Current public server:
 
 ## Version Policy
 
-Current version: `0.4.0`.
+Current version: `0.8.0`.
 
 From this point forward, every meaningful server, Agent, installer, or deployment package update should bump the minor version by `0.1.0`.
 
@@ -38,13 +38,16 @@ Generated release artifact names must use the same version:
 - UME version/path/running status reporting
 - i-vision running status reporting
 - UME fullscreen/topmost activation command
+- Green accept/join button detection and auto-click attempt after UME activation
 - UME hide and i-vision foreground restore command
 - UME release upload, download command, SHA-256 verification, and Authenticode verification
-- Schedule registration and manual run for UME activation
+- Schedule registration, edit, enable/disable, delete, and all-device manual run for UME activation
+- Per-device UME rerun command from device management, intended for site-level recovery when UME exits unexpectedly
 - Apple-style management UI
 - Windows Agent installer with default server URL `https://agent.funnet.kr`
 - Installer closes after successful Agent launch so only the tray Agent remains
 - Agent tray icon uses the Funnet logo-derived rounded icon
+- Installer header logo has transparent-background cleanup applied in `0.8.0`.
 
 ## Important Decisions
 
@@ -57,6 +60,7 @@ Generated release artifact names must use the same version:
 - Code signing is deferred. The installer remains unsigned for pilot use.
 - Enrollment keys are not device credentials. They are only used for first registration.
 - After registration, each PC communicates with its own device token. Rotating a region enrollment key does not affect already registered devices.
+- Schedules are global operational records for now. Recovery can be done per site/device by using the device-level `UME 실행` command, which queues the same `ume.activate` command for only that PC.
 - Existing devices from earlier versions are automatically assigned to the default `관악` region.
 
 ## Operational Notes

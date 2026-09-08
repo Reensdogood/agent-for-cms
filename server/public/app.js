@@ -150,6 +150,15 @@ function deviceRow(device) {
     catch (error) { toast(error.message, "error"); }
     finally { probe.disabled = false; }
   });
+  const runUme = textElement("button", "small secondary", "UME 실행");
+  runUme.disabled = !device.approved;
+  runUme.addEventListener("click", async () => {
+    if (!await confirmAction(`${device.displayName}에서 UME를 다시 실행할까요?`, "선택한 장비 1대에만 UME 전체화면/화상창 우선 명령을 보냅니다.", "실행")) return;
+    runUme.disabled = true;
+    try { const result = await api(`/api/devices/${device.id}/run-ume`, { method: "POST", body: "{}" }); toast(`${device.displayName}에 실행 명령을 보냈습니다.`); setTimeout(loadDevices, 1800); }
+    catch (error) { toast(error.message, "error"); }
+    finally { runUme.disabled = !device.approved; }
+  });
   const edit = textElement("button", "small secondary", "수정");
   edit.addEventListener("click", () => {
     $("#renameDeviceId").value = device.id;
@@ -164,7 +173,7 @@ function deviceRow(device) {
     catch (error) { toast(error.message, "error"); }
     finally { remove.disabled = false; }
   });
-  actions.append(probe, edit, remove);
+  actions.append(probe, runUme, edit, remove);
   row.append(actions);
   return row;
 }
@@ -283,13 +292,30 @@ function renderSchedules() {
     top.append(copy, edit);
     const time = textElement("strong", "schedule-time", schedule.localTime);
     const days = textElement("p", "schedule-days", schedule.days.map((day) => dayNames[day]).join(" · "));
-    const run = textElement("button", "secondary", "지금 실행");
+    const actions = document.createElement("div");
+    actions.className = "schedule-actions";
+    const run = textElement("button", "secondary", "전체 실행");
     run.addEventListener("click", async () => {
       if (!await confirmAction("UME를 지금 실행할까요?", "승인된 모든 온라인 장비에 전체화면 실행 명령을 전송합니다.", "실행")) return;
       try { const result = await api(`/api/schedules/${schedule.id}/run`, { method: "POST" }); toast(`${result.queued}대에 실행 명령을 보냈습니다.`); }
       catch (error) { toast(error.message, "error"); }
     });
-    card.append(top, time, days, run);
+    const toggle = textElement("button", "secondary", schedule.enabled ? "사용 해제" : "사용");
+    toggle.addEventListener("click", async () => {
+      try {
+        await api(`/api/schedules/${schedule.id}`, { method: "PUT", body: JSON.stringify({ ...schedule, enabled: !schedule.enabled }) });
+        await loadSchedules();
+        toast(schedule.enabled ? "스케줄을 사용 해제했습니다." : "스케줄을 사용 상태로 바꿨습니다.");
+      } catch (error) { handleError(error); }
+    });
+    const remove = textElement("button", "danger", "삭제");
+    remove.addEventListener("click", async () => {
+      if (!await confirmAction("이 스케줄을 삭제할까요?", `${schedule.name} 스케줄이 삭제됩니다. 기존 명령 이력은 유지됩니다.`, "삭제")) return;
+      try { await api(`/api/schedules/${schedule.id}`, { method: "DELETE" }); await loadSchedules(); toast("스케줄을 삭제했습니다."); }
+      catch (error) { handleError(error); }
+    });
+    actions.append(run, toggle, remove);
+    card.append(top, time, days, actions);
     return card;
   }));
 }

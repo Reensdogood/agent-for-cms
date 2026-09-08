@@ -154,6 +154,9 @@ tbody tr:hover { background: rgba(0,113,227,.025); }
 .schedule-time { display: block; margin-top: 1.7rem; font-size: 2.8rem; line-height: 1; letter-spacing: -.05em; }
 .schedule-days { margin: .6rem 0 1.5rem; color: var(--muted); font-size: .77rem; }
 .schedule-card > button { width: 100%; }
+.schedule-actions { display: grid; grid-template-columns: 1fr 1fr auto; gap: .48rem; margin-top: 1.35rem; }
+.schedule-actions button { width: 100%; min-height: 2.35rem; }
+.schedule-actions .danger { min-width: 4.5rem; }
 
 .upload-panel { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 1rem; padding: 1.35rem; }
 .upload-panel p { margin: .25rem 0 0; color: var(--muted); font-size: .76rem; }
@@ -213,7 +216,7 @@ legend { color: #3a3a3c; font-size: .8rem; font-weight: 680; }
   .hero-copy, .page-actions { align-items: stretch; flex-direction: column; }
   .summary { grid-template-columns: 1fr 1fr; }
   .summary article { min-height: 7.7rem; }
-  .upload-panel, .release-card, .setup-grid, .region-key-row { grid-template-columns: 1fr; }
+  .upload-panel, .release-card, .setup-grid, .region-key-row, .schedule-actions { grid-template-columns: 1fr; }
   .release-card .package-icon { display: none; }
   .integration-head { align-items: stretch; flex-direction: column; }
 }

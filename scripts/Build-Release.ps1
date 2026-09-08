@@ -1,9 +1,12 @@
 [CmdletBinding()]
-param([string]$Version = "0.4.0")
+param(
+    [string]$Version = "0.8.0",
+    [string]$OutputDirectory = "dist"
+)
 
 $ErrorActionPreference = "Stop"
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$distRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "dist"))
+$distRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $OutputDirectory))
 if (-not $distRoot.StartsWith($projectRoot, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Invalid distribution path." }
 if (Test-Path -LiteralPath $distRoot) { Remove-Item -LiteralPath $distRoot -Recurse -Force }
 

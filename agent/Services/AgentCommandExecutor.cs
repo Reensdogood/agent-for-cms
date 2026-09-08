@@ -1,9 +1,9 @@
 namespace Funnet.Gwanak.Agent.Services;
 
-internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthCollector healthCollector)
+internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthCollector healthCollector, UmeWindowController umeController)
 {
     private readonly PackageDeploymentService _packageDeployment = new(apiClient);
-    private readonly UmeWindowController _umeController = new();
+    private readonly UmeWindowController _umeController = umeController;
 
     public async Task<int> ExecutePendingAsync(CancellationToken cancellationToken)
     {
