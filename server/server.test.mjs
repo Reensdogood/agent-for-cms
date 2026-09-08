@@ -119,14 +119,14 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   const rejectedRegistration = await fetch(`${base}/api/agent/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Enrollment-Key": "wrong-enrollment-key" },
-    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "거절 장비", machineName: "OLD-KEY", agentVersion: "0.8.0" }),
+    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "거절 장비", machineName: "OLD-KEY", agentVersion: "0.9.0" }),
   });
   assert.equal(rejectedRegistration.status, 401);
 
   const acceptedRegistration = await fetch(`${base}/api/agent/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Enrollment-Key": createdRegion.enrollmentKey },
-    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "동작 신규 장비", machineName: "NEW-KEY", agentVersion: "0.8.0" }),
+    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "동작 신규 장비", machineName: "NEW-KEY", agentVersion: "0.9.0" }),
   });
   assert.equal(acceptedRegistration.status, 201);
 
@@ -141,7 +141,7 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   const heartbeatAfterRotate = await fetch(`${base}/api/agent/heartbeat`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${registered.deviceToken}` },
-    body: JSON.stringify({ localName: "테스트 장비", machineName: "TEST-PC", agentVersion: "0.8.0" }),
+    body: JSON.stringify({ localName: "테스트 장비", machineName: "TEST-PC", agentVersion: "0.9.0" }),
   });
   assert.equal(heartbeatAfterRotate.status, 200);
 

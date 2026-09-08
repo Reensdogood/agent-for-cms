@@ -67,13 +67,13 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 ## 배포 패키지 빌드
 
 ```powershell
-.\scripts\Build-Release.ps1 -Version 0.8.0 -OutputDirectory dist-0.8.0
+.\scripts\Build-Release.ps1 -Version 0.9.0 -OutputDirectory dist-0.9.0
 ```
 
 생성물은 지정한 배포 폴더에 만들어집니다.
 
-- `funnet-gwanak-agent-setup-0.8.0.exe`: Windows Agent 설치 프로그램
-- `funnet-gwanak-server-0.8.0.zip`: 서버 배포 패키지
+- `funnet-gwanak-agent-setup-0.9.0.exe`: Windows Agent 설치 프로그램
+- `funnet-gwanak-server-0.9.0.zip`: 서버 배포 패키지
 - `SHA256SUMS.txt`: 배포 파일 해시
 - `agent-settings.example.json`: Agent 설정 예시
 
@@ -81,9 +81,9 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 
 ## 버전 정책
 
-현재 기준 버전은 `0.8.0`입니다. 이후 기능 추가, UI 개선, 서버/Agent 배포 산출물 갱신 시마다 `0.1.0` 단위로 올립니다.
+현재 기준 버전은 `0.9.0`입니다. 이후 기능 추가, UI 개선, 서버/Agent 배포 산출물 갱신 시마다 `0.1.0` 단위로 올립니다.
 
-예: `0.8.0` 다음 버전은 `0.9.0`입니다.
+예: `0.9.0` 다음 버전은 `1.0.0`입니다.
 
 ## 서버 운영 배포
 

@@ -12,7 +12,7 @@ Current public server:
 
 ## Version Policy
 
-Current version: `0.8.0`.
+Current version: `0.9.0`.
 
 From this point forward, every meaningful server, Agent, installer, or deployment package update should bump the minor version by `0.1.0`.
 
@@ -43,11 +43,13 @@ Generated release artifact names must use the same version:
 - UME release upload, download command, SHA-256 verification, and Authenticode verification
 - Schedule registration, edit, enable/disable, delete, and all-device manual run for UME activation
 - Per-device UME rerun command from device management, intended for site-level recovery when UME exits unexpectedly
+- Green accept/join button detection scans every visible UME window on each attempt, including late-created invite windows.
 - Apple-style management UI
 - Windows Agent installer with default server URL `https://agent.funnet.kr`
 - Installer closes after successful Agent launch so only the tray Agent remains
 - Agent tray icon uses the Funnet logo-derived rounded icon
 - Installer header logo has transparent-background cleanup applied in `0.8.0`.
+- Installer bottom spacing after the remove button was restored in `0.9.0`.
 
 ## Important Decisions
 

@@ -130,16 +130,21 @@ internal sealed class UmeWindowController
     public async Task<bool> TryClickForegroundGreenAcceptButtonAsync(CancellationToken cancellationToken)
     {
         var foreground = GetForegroundWindow();
-        if (foreground == IntPtr.Zero || !IsUmeWindow(foreground)) return false;
         var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
         if (bounds.IsEmpty) return false;
-        PromoteMeetingWindow(bounds);
-        var windows = FindWindows(IsUmeProcess, visibleOnly: true);
-        foreach (var window in windows)
+        if (foreground == IntPtr.Zero || !IsUmeWindow(foreground))
         {
-            var candidate = FindGreenButtonCandidate(window, bounds);
-            if (candidate is null) continue;
-            ClickScreenPoint(candidate.CenterX, candidate.CenterY);
+            var hasInviteCandidate = FindBestGreenButtonTarget(bounds) is not null;
+            if (!hasInviteCandidate) return false;
+        }
+        PromoteMeetingWindow(bounds);
+        var target = FindBestGreenButtonTarget(bounds);
+        if (target is not null)
+        {
+            BringWindowToTop(target.Window);
+            SetForegroundWindow(target.Window);
+            await Task.Delay(120, cancellationToken);
+            ClickScreenPoint(target.Candidate.CenterX, target.Candidate.CenterY);
             await Task.Delay(250, cancellationToken);
             PromoteMeetingWindow(bounds);
             return true;
@@ -251,12 +256,21 @@ internal sealed class UmeWindowController
         for (var attempt = 1; attempt <= 24; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            BringWindowToTop(window);
-            SetForegroundWindow(window);
-            await Task.Delay(150, cancellationToken);
-            candidate = FindGreenButtonCandidate(window, monitorBounds);
-            if (candidate is not null)
+            var visibleUmeWindows = FindWindows(IsUmeProcess, visibleOnly: true);
+            var activeTarget = visibleUmeWindows.Contains(window) ? window : visibleUmeWindows.FirstOrDefault();
+            if (activeTarget != IntPtr.Zero)
             {
+                BringWindowToTop(activeTarget);
+                SetForegroundWindow(activeTarget);
+            }
+            await Task.Delay(150, cancellationToken);
+            var target = FindBestGreenButtonTarget(monitorBounds);
+            if (target is not null)
+            {
+                candidate = target.Candidate;
+                BringWindowToTop(target.Window);
+                SetForegroundWindow(target.Window);
+                await Task.Delay(80, cancellationToken);
                 ClickScreenPoint(candidate.CenterX, candidate.CenterY);
                 await Task.Delay(250, cancellationToken);
                 return new
@@ -265,7 +279,7 @@ internal sealed class UmeWindowController
                     clicked = true,
                     method = "green-color-detection",
                     elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
-                    candidate = new { candidate.CenterX, candidate.CenterY, candidate.Width, candidate.Height, candidate.Score }
+                    candidate = new { candidate.CenterX, candidate.CenterY, candidate.Width, candidate.Height, candidate.Score, target.Title }
                 };
             }
             await Task.Delay(100, cancellationToken);
@@ -278,6 +292,19 @@ internal sealed class UmeWindowController
             elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
             reason = "녹색 참가/수락 버튼 후보를 찾지 못했습니다."
         };
+    }
+
+    private static GreenButtonTarget? FindBestGreenButtonTarget(Rectangle monitorBounds)
+    {
+        GreenButtonTarget? best = null;
+        foreach (var info in FindWindows(IsUmeProcess, visibleOnly: true).Select(ToWindowInfo))
+        {
+            var candidate = FindGreenButtonCandidate(info.Handle, monitorBounds);
+            if (candidate is null) continue;
+            var target = new GreenButtonTarget(info.Handle, info.Title, candidate);
+            if (best is null || target.Candidate.Score > best.Candidate.Score) best = target;
+        }
+        return best;
     }
 
     private static GreenButtonCandidate? FindGreenButtonCandidate(IntPtr window, Rectangle monitorBounds)
@@ -418,5 +445,6 @@ internal sealed class UmeWindowController
     }
 
     private sealed record GreenButtonCandidate(int CenterX, int CenterY, int Width, int Height, int Score);
+    private sealed record GreenButtonTarget(IntPtr Window, string Title, GreenButtonCandidate Candidate);
     private sealed record WindowInfo(IntPtr Handle, string Title, Rectangle Bounds);
 }

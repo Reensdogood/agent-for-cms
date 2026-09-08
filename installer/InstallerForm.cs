@@ -19,7 +19,7 @@ internal sealed class InstallerForm : Form
     public InstallerForm()
     {
         Text = "Funnet 관악 Agent 설치";
-        Width = 560; Height = 590; MinimumSize = new Size(540, 570);
+        Width = 560; Height = 625; MinimumSize = new Size(540, 610);
         StartPosition = FormStartPosition.CenterScreen; Font = new Font("Segoe UI", 10F);
         BackColor = Color.FromArgb(245, 245, 247); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
 
@@ -54,7 +54,7 @@ internal sealed class InstallerForm : Form
         var panel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            Padding = new Padding(44, 34, 44, 30),
+            Padding = new Padding(44, 34, 44, 42),
             ColumnCount = 1,
             RowCount = 10,
         };
@@ -67,7 +67,7 @@ internal sealed class InstallerForm : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
-        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
         panel.Controls.Add(logo);
         panel.Controls.Add(title);
         panel.Controls.Add(subtitle);
