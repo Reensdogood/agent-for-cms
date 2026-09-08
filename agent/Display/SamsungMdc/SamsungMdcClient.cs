@@ -67,7 +67,7 @@ internal sealed class SamsungMdcClient(ISerialTransport transport, byte displayI
 
     private static DisplayControlException BrightnessUnsupported() => new(
         DisplayErrorCode.UnsupportedCommand,
-        "Brightness command 0x25 is not documented for QE75T in Samsung manual BN81-19339A-04 and is disabled until official or hardware confirmation.");
+        "Brightness Get/Set is skipped for QE75T: command 0x25 is not documented in Samsung manual BN81-19339A-04.");
 
     private async Task<byte> QueryAsync(SamsungMdcCommand command, CancellationToken cancellationToken)
     {

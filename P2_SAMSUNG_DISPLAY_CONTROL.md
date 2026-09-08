@@ -1537,7 +1537,7 @@ Codex는 작업 종료 시 완료한 항목만 `[x]` 처리한다.
 - [x] P2-1 Repository inspection
 - [x] P2-2 Serial Port layer
 - [x] P2-3 PL23XX detection
-- [ ] P2-4 Samsung MDC
+- [x] P2-4 Samsung MDC (confirmed commands; Brightness SKIP)
 - [ ] P2-5 Display status
 - [ ] P2-6 Individual control
 - [ ] P2-7 Server reporting
@@ -1565,7 +1565,7 @@ Codex는 작업 종료 시 완료한 항목만 `[x]` 처리한다.
 - Local hardware inventory during inspection: only motherboard serial `COM1` was present; no NEXT-340PL, Prolific, PL2303/PL23XX, or USB-to-Serial candidate was connected. This is not a hardware acceptance test.
 - Official QE75T confirmation: Samsung's QE75T support page identifies the QET Series QE75T and lists `RS232C(in) thru stereo jack` as external control. The official English user manual (BN81-19339A-04, 2025-04-25) documents 9600 bps, 8 data bits, no parity, 1 stop bit, and no flow control on page 35.
 - Official MDC values confirmed from that QE75T manual: header `0xAA`; checksum excludes the header; Power `0x11`; Volume `0x12`; Input Source `0x14`; HDMI1 `0x21`; HDMI2 `0x23`; ACK/NAK response command `0xFF` with `'A'`/`'N'` and returned command byte.
-- Brightness warning: the QE75T manual's MDC command table and command pages do **not** document Brightness `0x25`. That value remains unverified for QE75T and must not be treated as supported until another Samsung official compatibility source or the required LH75QET hardware test confirms it. An unsupported/NAK result must remain a failure.
+- Brightness decision: the QE75T manual's MDC command table and command pages do **not** document Brightness `0x25`. Per project decision, Brightness Get/Set is **SKIP** for this P2 and is excluded from the supported command set and bulk controls. No guessed packet is sent.
 - Official sources: `https://www.samsung.com/us/business/support/owners/product/qet-series-digital-signage-qe75t/` and `https://downloadcenter.samsung.com/content/UM/202505/20250522165027679/BN81-19339A-04_WEB_LFD-Y20-T_SERIES-Stand_Alone_NA_ZB_ENG_250425.0.pdf`.
 
 ### P2-2 Completion Record
@@ -1590,7 +1590,7 @@ Codex는 작업 종료 시 완료한 항목만 `[x]` 처리한다.
 - Added type-safe confirmed commands and values only: Power `0x11`, Volume `0x12`, Input `0x14`, HDMI1 `0x21`, and HDMI2 `0x23`.
 - Added serial exchange behavior with partial-read handling, timeout propagation, ACK validation, and mandatory state re-read after Set. Broadcast display ID `0xFE` is rejected because Samsung documents that broadcast commands do not return ACK.
 - Focused P2-4 confirmed-protocol/client tests: 14 passed, 0 failed after the timeout case was added.
-- P2-4 remains unchecked: the mandatory Brightness packet test cannot be truthfully implemented because Brightness `0x25` is absent from the official QE75T manual and no NEXT-340PL/LH75QET hardware is connected for compatibility confirmation. The client returns `UNSUPPORTED_COMMAND` without writing guessed bytes.
+- Brightness Get/Set is intentionally SKIPPED because `0x25` is not documented for QE75T; the client returns `UNSUPPORTED_COMMAND` without writing any packet. Power/Input/Volume protocol work is complete for this stage; hardware verification remains P2-12.
 
 ---
 
