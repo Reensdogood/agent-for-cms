@@ -133,8 +133,6 @@ function deviceRow(device) {
     tableCell(device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""}` : "미감지"),
     tableCell(device.ivisionRunning ? "실행" : "미실행"), tableCell(formatTime(device.lastSeenAt)));
   const actions = document.createElement("td");
-  const displayState = textElement("div", "display-state", "TV 상태: 미확인");
-  actions.append(displayState);
   if (!device.approved) {
     const approve = textElement("button", "small primary-soft", "승인");
     approve.addEventListener("click", async () => {
@@ -148,7 +146,7 @@ function deviceRow(device) {
   const probe = textElement("button", "small secondary", "상태 확인");
   probe.addEventListener("click", async () => {
     probe.disabled = true;
-    try { await api(`/api/devices/${device.id}/probe`, { method: "POST" }); setTimeout(async () => { try { const s = await api(`/api/devices/${device.id}/display/status`); const d=s.display||{}; const label=d.power ? `전원 ${String(d.power).toUpperCase()}` : "상태 확인 불가"; displayState.textContent = `TV 상태: ${label}${d.input ? ` · 입력 ${d.input}` : ""}${d.volume !== undefined ? ` · 볼륨 ${d.volume}` : ""}`; } catch (e) { displayState.textContent = "TV 상태: 조회 실패"; } loadDevices(); }, 2200); }
+    try { await api(`/api/devices/${device.id}/probe`, { method: "POST" }); setTimeout(async () => { try { await api(`/api/devices/${device.id}/display/status`); } catch (e) {} loadDevices(); }, 2200); }
     catch (error) { toast(error.message, "error"); }
     finally { probe.disabled = false; }
   });
