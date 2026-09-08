@@ -899,7 +899,10 @@ async function handleApi(req, res, url) {
     if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 조회할 수 있습니다." });
     let health = {};
     try { health = JSON.parse(device.last_health_json || "{}"); } catch {}
-    return json(res, 200, { display: health.display || null, lastSeenAt: device.last_seen_at, online: device.status === "online" });
+    let display = health.display || null;
+    const latest = db.prepare("SELECT type, result_json FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status = 'completed' ORDER BY completed_at DESC LIMIT 1").get(device.id);
+    if (!display && latest) { try { display = { ...(JSON.parse(latest.result_json || "{}").result || {}), source: "last-command" }; } catch {} }
+    return json(res, 200, { display, lastSeenAt: device.last_seen_at, online: device.status === "online" });
   }
 
   const displayBulkMatch = url.pathname.match(/^\/api\/display\/bulk\/(power|input)$/i);

@@ -29,8 +29,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         _commandExecutor = new AgentCommandExecutor(_apiClient, _healthCollector, _umeController, _settings);
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add(new ToolStripMenuItem("상태 확인", null, async (_, _) => await SendHealthNowAsync()));
-        menu.Items.Add(new ToolStripMenuItem("설정 열기", null, (_, _) => OpenSettings()));
+        menu.Items.Add(new ToolStripMenuItem("설정", null, (_, _) => OpenSettings()));
         menu.Items.Add(new ToolStripMenuItem("Agent 재시작", null, (_, _) => RestartAgent()));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("종료", null, (_, _) => ExitAgent()));
@@ -159,7 +158,12 @@ internal sealed class TrayAgentContext : ApplicationContext
 
     private void OpenSettings()
     {
-        try { Process.Start(new ProcessStartInfo("notepad.exe", $"\"{_settings.SettingsFilePath}\"") { UseShellExecute = true }); }
+        try
+        {
+            var setup = Path.Combine(AppContext.BaseDirectory, "funnet-gwanak-agent-setup.exe");
+            if (File.Exists(setup)) Process.Start(new ProcessStartInfo(setup) { UseShellExecute = true });
+            else Process.Start(new ProcessStartInfo("notepad.exe", $"\"{_settings.SettingsFilePath}\"") { UseShellExecute = true });
+        }
         catch (Exception exception) { SetStatus($"설정 열기 실패: {exception.Message}"); }
     }
 

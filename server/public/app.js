@@ -146,7 +146,7 @@ function deviceRow(device) {
   const probe = textElement("button", "small secondary", "상태 확인");
   probe.addEventListener("click", async () => {
     probe.disabled = true;
-    try { await api(`/api/devices/${device.id}/probe`, { method: "POST" }); toast("장비에 상태 확인을 요청했습니다."); setTimeout(loadDevices, 1800); }
+    try { await api(`/api/devices/${device.id}/probe`, { method: "POST" }); setTimeout(async () => { try { const s = await api(`/api/devices/${device.id}/display/status`); toast(`TV 상태: ${s.display ? JSON.stringify(s.display) : "확인 불가"}`); } catch (e) { toast(e.message, "error"); } loadDevices(); }, 2200); }
     catch (error) { toast(error.message, "error"); }
     finally { probe.disabled = false; }
   });
@@ -159,21 +159,20 @@ function deviceRow(device) {
     catch (error) { toast(error.message, "error"); }
     finally { runUme.disabled = !device.approved; }
   });
-  const displayButtons = [
-    ["전원 ON", { on: true }, "power"], ["전원 OFF", { on: false }, "power"],
-    ["HDMI1", { input: "HDMI1" }, "input"], ["HDMI2", { input: "HDMI2" }, "input"],
-  ];
-  for (const [label, payload, kind] of displayButtons) {
-    const button = textElement("button", "small secondary", label);
-    button.disabled = !device.approved;
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      try { await api(`/api/devices/${device.id}/display/${kind}`, { method: "POST", body: JSON.stringify(payload) }); toast(`${device.displayName}에 ${label} 명령을 보냈습니다.`); }
-      catch (error) { toast(error.message, "error"); }
-      finally { button.disabled = !device.approved; }
-    });
-    actions.append(button);
-  }
+  const tv = textElement("button", "small secondary", "TV 제어");
+  tv.disabled = !device.approved;
+  tv.addEventListener("click", async () => {
+    const choice = window.prompt("명령을 입력하세요: ON, OFF, HDMI1, HDMI2, VOL+, VOL-", "ON");
+    const commands = { ON: ["power", { on: true }], OFF: ["power", { on: false }], HDMI1: ["input", { input: "HDMI1" }], HDMI2: ["input", { input: "HDMI2" }] };
+    let entry = commands[String(choice || "").toUpperCase()];
+    if (choice === "VOL+" || choice === "VOL-") { const v = Number(window.prompt("현재 볼륨을 입력하세요.", "30")); if (!Number.isInteger(v) || v < 0 || v > 100) return; entry = ["volume", { value: Math.max(0, Math.min(100, v + (choice === "VOL+" ? 5 : -5))) }]; }
+    if (!entry) return;
+    tv.disabled = true;
+    try { await api(`/api/devices/${device.id}/display/${entry[0]}`, { method: "POST", body: JSON.stringify(entry[1]) }); toast(`${device.displayName} TV 명령을 보냈습니다.`); }
+    catch (error) { toast(error.message, "error"); }
+    finally { tv.disabled = !device.approved; }
+  });
+  actions.append(tv);
   const volume = textElement("button", "small secondary", "볼륨");
   volume.disabled = !device.approved;
   volume.addEventListener("click", async () => {
