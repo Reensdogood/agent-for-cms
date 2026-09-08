@@ -17,6 +17,7 @@
 - 장비별 UME 재실행 명령 전송
 - UME 창 전체화면/최상단 전환 명령
 - UME 콜 수신 시 녹색 참가/수락 버튼 화면 감지와 자동 클릭 시도
+- UME 자동 로그인이 풀렸을 때 작은 로그인 창의 파란 로그인 버튼 자동 클릭 시도
 - UME 숨김 처리와 i-vision 전면 복귀 시도
 - 서버에 UME 설치파일 업로드
 - 승인된 장비 전체로 UME 설치파일 다운로드 명령 전송
@@ -67,13 +68,13 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 ## 배포 패키지 빌드
 
 ```powershell
-.\scripts\Build-Release.ps1 -Version 0.9.0 -OutputDirectory dist-0.9.0
+.\scripts\Build-Release.ps1 -Version 1.0.0 -OutputDirectory dist-1.0.0
 ```
 
 생성물은 지정한 배포 폴더에 만들어집니다.
 
-- `funnet-gwanak-agent-setup-0.9.0.exe`: Windows Agent 설치 프로그램
-- `funnet-gwanak-server-0.9.0.zip`: 서버 배포 패키지
+- `funnet-gwanak-agent-setup-1.0.0.exe`: Windows Agent 설치 프로그램
+- `funnet-gwanak-server-1.0.0.zip`: 서버 배포 패키지
 - `SHA256SUMS.txt`: 배포 파일 해시
 - `agent-settings.example.json`: Agent 설정 예시
 
@@ -81,9 +82,9 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 
 ## 버전 정책
 
-현재 기준 버전은 `0.9.0`입니다. 이후 기능 추가, UI 개선, 서버/Agent 배포 산출물 갱신 시마다 `0.1.0` 단위로 올립니다.
+현재 기준 버전은 `1.0.0`입니다. 이후 기능 추가, UI 개선, 서버/Agent 배포 산출물 갱신 시마다 `0.1.0` 단위로 올립니다.
 
-예: `0.9.0` 다음 버전은 `1.0.0`입니다.
+예: `1.0.0` 다음 버전은 `1.1.0`입니다.
 
 ## 서버 운영 배포
 

@@ -253,6 +253,7 @@ internal sealed class UmeWindowController
     {
         var startedAt = DateTimeOffset.UtcNow;
         GreenButtonCandidate? candidate = null;
+        var loginClicked = false;
         for (var attempt = 1; attempt <= 24; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -279,8 +280,22 @@ internal sealed class UmeWindowController
                     clicked = true,
                     method = "green-color-detection",
                     elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
+                    loginRecoveryClicked = loginClicked,
                     candidate = new { candidate.CenterX, candidate.CenterY, candidate.Width, candidate.Height, candidate.Score, target.Title }
                 };
+            }
+            if (!loginClicked)
+            {
+                var loginTarget = FindBestBlueLoginButtonTarget(monitorBounds);
+                if (loginTarget is not null)
+                {
+                    loginClicked = true;
+                    BringWindowToTop(loginTarget.Window);
+                    SetForegroundWindow(loginTarget.Window);
+                    await Task.Delay(120, cancellationToken);
+                    ClickScreenPoint(loginTarget.Candidate.CenterX, loginTarget.Candidate.CenterY);
+                    await Task.Delay(700, cancellationToken);
+                }
             }
             await Task.Delay(100, cancellationToken);
         }
@@ -290,6 +305,7 @@ internal sealed class UmeWindowController
             clicked = false,
             method = "green-color-detection",
             elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
+            loginRecoveryClicked = loginClicked,
             reason = "녹색 참가/수락 버튼 후보를 찾지 못했습니다."
         };
     }
@@ -307,7 +323,35 @@ internal sealed class UmeWindowController
         return best;
     }
 
+    private static GreenButtonTarget? FindBestBlueLoginButtonTarget(Rectangle monitorBounds)
+    {
+        GreenButtonTarget? best = null;
+        foreach (var info in FindWindows(IsUmeProcess, visibleOnly: true).Select(ToWindowInfo))
+        {
+            if (!IsCompactLoginCandidate(info, monitorBounds)) continue;
+            var candidate = FindButtonCandidate(info.Handle, monitorBounds, IsLoginBlue);
+            if (candidate is null) continue;
+            var target = new GreenButtonTarget(info.Handle, info.Title, candidate);
+            if (best is null || target.Candidate.Score > best.Candidate.Score) best = target;
+        }
+        return best;
+    }
+
+    private static bool IsCompactLoginCandidate(WindowInfo info, Rectangle monitorBounds)
+    {
+        if (IsMeetingWindow(info)) return false;
+        if (info.Bounds.Width <= 0 || info.Bounds.Height <= 0) return false;
+        var monitorArea = monitorBounds.Width * monitorBounds.Height;
+        var windowArea = info.Bounds.Width * info.Bounds.Height;
+        return info.Bounds.Width <= 900
+               && info.Bounds.Height <= 700
+               && (monitorArea <= 0 || windowArea <= monitorArea * 0.12);
+    }
+
     private static GreenButtonCandidate? FindGreenButtonCandidate(IntPtr window, Rectangle monitorBounds)
+        => FindButtonCandidate(window, monitorBounds, IsAcceptGreen);
+
+    private static GreenButtonCandidate? FindButtonCandidate(IntPtr window, Rectangle monitorBounds, Func<Color, bool> predicate)
     {
         var captureBounds = monitorBounds;
         if (GetWindowRect(window, out var rect))
@@ -332,7 +376,7 @@ internal sealed class UmeWindowController
             for (var gx = 0; gx < gridWidth; gx++)
             {
                 var color = bitmap.GetPixel(Math.Min(gx * step, bitmap.Width - 1), Math.Min(gy * step, bitmap.Height - 1));
-                mask[gx, gy] = IsAcceptGreen(color);
+                mask[gx, gy] = predicate(color);
             }
         }
 
@@ -396,6 +440,18 @@ internal sealed class UmeWindowController
                && g >= b + 25
                && r <= 170
                && b <= 170;
+    }
+
+    private static bool IsLoginBlue(Color color)
+    {
+        var r = color.R;
+        var g = color.G;
+        var b = color.B;
+        return b >= 170
+               && g >= 85
+               && b >= r + 45
+               && b >= g + 25
+               && r <= 130;
     }
 
     private static IEnumerable<(int X, int Y)> Neighbors(int x, int y, int width, int height)
