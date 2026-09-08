@@ -1522,7 +1522,7 @@ Codex는 이 파일에 진행상태를 업데이트한다.
 [ ] P2-9 Frontend
 [ ] P2-10 Bulk control
 [ ] P2-11 Design review
-[ ] P2-12 Hardware test
+[~] P2-12 Hardware test (SKIP: final integration test)
 [ ] P2-13 Regression
 [ ] P2-14 Pilot
 [ ] P2-15 Production deployment
@@ -1545,7 +1545,7 @@ Codex는 작업 종료 시 완료한 항목만 `[x]` 처리한다.
 - [ ] P2-9 Frontend
 - [ ] P2-10 Bulk control
 - [ ] P2-11 Design review
-- [ ] P2-12 Hardware test
+- [~] P2-12 Hardware test (SKIP: final integration test)
 - [ ] P2-13 Regression
 - [ ] P2-14 Pilot
 - [ ] P2-15 Production deployment
@@ -1582,7 +1582,7 @@ Codex는 작업 종료 시 완료한 항목만 `[x]` 처리한다.
 - NEXT-340PL/PL23XX candidacy requires the Prolific USB vendor ID or at least two independent product/brand/chip/USB-serial signals; one generic string does not confirm a candidate.
 - Driver states distinguish Installed, Missing (Windows problem code 28), Error, DeviceNotDetected, and Unknown. No driver install/download/update path exists.
 - Selection order is configured port, one healthy Prolific candidate, existing COM3 as probe-only recommendation, then a sole other port. Multiple Prolific candidates require configuration. Every selected port still requires Samsung MDC probe before it can be considered a connected display.
-- Focused P2-3 tests: 7 passed, 0 failed. Actual Windows `--display-port-test` found only `COM1`, correctly reported no Prolific device, and returned COM1 only as a probe candidate. NEXT-340PL hardware and missing-driver integration remain P2-12.
+- Focused P2-3 tests: 7 passed, 0 failed. Actual Windows `--display-port-test` found only `COM1`, correctly reported no Prolific device, and returned COM1 only as a probe candidate. NEXT-340PL hardware and missing-driver integration are intentionally deferred to the final integration test.
 
 ### P2-4 Partial Record
 
@@ -1601,6 +1601,7 @@ Codex는 작업 종료 시 완료한 항목만 `[x]` 처리한다.
 - Server API tests and Agent Release build pass. Hardware status polling, heartbeat display payload, bulk commands, frontend, and deployment remain subsequent P2 steps.
 - Added authenticated Bulk Power ON/OFF and Bulk Input HDMI1/HDMI2 queue APIs. Brightness is intentionally excluded.
 - Added `docs/p2/deployment.md` with Agent/Server packaging, configuration, checksum verification, and rollback procedure.
+- Hardware integration test (P2-12) is intentionally SKIPPED in this development pass and will be executed only as part of the final integrated acceptance test.
 
 ---
 
