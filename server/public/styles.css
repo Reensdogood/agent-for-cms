@@ -236,3 +236,4 @@ legend { color: #3a3a3c; font-size: .8rem; font-weight: 680; }
 @media (prefers-contrast: more) {
   .panel, .summary article, .login-card, .topbar, input { border-color: #6e6e73; }
 }
+ .display-state { display: block; margin-bottom: 6px; color: #636366; font-size: 12px; font-weight: 600; }
