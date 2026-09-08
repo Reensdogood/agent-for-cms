@@ -900,8 +900,10 @@ async function handleApi(req, res, url) {
     let health = {};
     try { health = JSON.parse(device.last_health_json || "{}"); } catch {}
     let display = health.display || null;
-    const latest = db.prepare("SELECT type, result_json FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status = 'completed' ORDER BY completed_at DESC LIMIT 1").get(device.id);
-    if (!display && latest) { try { display = { ...(JSON.parse(latest.result_json || "{}").result || {}), source: "last-command" }; } catch {} }
+    const latest = db.prepare("SELECT type, result_json FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status = 'completed' ORDER BY completed_at DESC").all(device.id);
+    if (!display) display = {};
+    for (const item of latest) { try { const value = JSON.parse(item.result_json || "{}").result || {}; if (item.type === "display.power" && display.power === undefined) display.power = value.power; if (item.type === "display.input" && display.input === undefined) display.input = value.input; if (item.type === "display.volume" && display.volume === undefined) display.volume = value.volume; } catch {} }
+    if (!Object.keys(display).length) display = null;
     return json(res, 200, { display, lastSeenAt: device.last_seen_at, online: device.status === "online" });
   }
 
