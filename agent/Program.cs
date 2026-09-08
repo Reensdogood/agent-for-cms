@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Funnet.Gwanak.Agent.Infrastructure;
 using Funnet.Gwanak.Agent.Services;
+using Funnet.Gwanak.Agent.Display.Discovery;
 
 namespace Funnet.Gwanak.Agent;
 
@@ -10,6 +11,14 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+
+        if (args.Any(value => string.Equals(value, "--display-port-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            var inventory = new SerialDeviceDiscovery(new WindowsPnpDeviceSource()).Discover();
+            var selection = SerialPortSelector.Select(inventory.Devices, configuredPort: null);
+            Console.WriteLine(JsonSerializer.Serialize(new { inventory, selection }, JsonDefaults.Indented));
+            return;
+        }
 
         if (args.Any(value => string.Equals(value, "--self-test", StringComparison.OrdinalIgnoreCase)))
         {

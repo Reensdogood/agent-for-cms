@@ -21,4 +21,9 @@
   <ItemGroup>
     <EmbeddedResource Include="assets\funnet-tray-icon.ico" LogicalName="FunnetTrayIcon" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <InternalsVisibleTo Include="Funnet.Gwanak.Agent.Tests" />
+  </ItemGroup>
 </Project>
