@@ -1,4 +1,5 @@
 server/data/
+test-server-data/
 server/packages/
 agent/bin/
 agent/obj/
