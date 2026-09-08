@@ -81,16 +81,14 @@ internal sealed class WindowsSerialTransport : ISerialTransport
     {
         EnsureOpen();
         if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeout));
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(timeout);
         try
         {
-            return await _port.BaseStream.ReadAsync(buffer, timeoutSource.Token);
-        }
-        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new DisplayControlException(DisplayErrorCode.Timeout,
-                $"{PortName} 포트 응답 시간이 초과되었습니다.", exception);
+            var readTask = _port.BaseStream.ReadAsync(buffer, cancellationToken).AsTask();
+            var completed = await Task.WhenAny(readTask, Task.Delay(timeout, cancellationToken));
+            if (completed != readTask)
+                throw new DisplayControlException(DisplayErrorCode.Timeout,
+                    $"{PortName} 포트 응답 시간이 초과되었습니다.");
+            return await readTask;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
