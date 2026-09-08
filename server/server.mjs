@@ -902,6 +902,25 @@ async function handleApi(req, res, url) {
     return json(res, 200, { display: health.display || null, lastSeenAt: device.last_seen_at, online: device.status === "online" });
   }
 
+  const displayBulkMatch = url.pathname.match(/^\/api\/display\/bulk\/(power|input)$/i);
+  if (req.method === "POST" && displayBulkMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const body = await readJson(req);
+    const kind = displayBulkMatch[1].toLowerCase();
+    const payload = kind === "power" ? { on: Boolean(body.on) } : { input: String(body.input || "").toUpperCase() };
+    if (kind === "input" && !["HDMI1", "HDMI2"].includes(payload.input)) return json(res, 400, { error: "input은 HDMI1 또는 HDMI2여야 합니다." });
+    const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
+    const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
+    const args = sameRegionOnly(session) ? [session.regionId] : [];
+    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1${scope}`).all(...args);
+    const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
+    const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, `display.${kind}`, JSON.stringify(payload), now()); return { deviceId: row.id, commandId: id }; });
+    audit(session.username, `display.bulk.${kind}`, "ALL", { payload, queued: commandIds.length });
+    return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
+  }
+
   const deviceMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)$/i);
   if (req.method === "PUT" && deviceMatch) {
     const session = requireAdmin(req, res, true);

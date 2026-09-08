@@ -1599,6 +1599,8 @@ Codex는 작업 종료 시 완료한 항목만 `[x]` 처리한다.
 - Server added authenticated, role-checked individual endpoints: `POST /api/devices/{id}/display/power`, `/input`, `/volume`, plus `GET /api/devices/{id}/display/status`.
 - Server endpoints enqueue logical commands only; Samsung MDC bytes remain inside the Windows Agent.
 - Server API tests and Agent Release build pass. Hardware status polling, heartbeat display payload, bulk commands, frontend, and deployment remain subsequent P2 steps.
+- Added authenticated Bulk Power ON/OFF and Bulk Input HDMI1/HDMI2 queue APIs. Brightness is intentionally excluded.
+- Added `docs/p2/deployment.md` with Agent/Server packaging, configuration, checksum verification, and rollback procedure.
 
 ---
 
