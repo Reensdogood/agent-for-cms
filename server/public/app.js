@@ -162,28 +162,14 @@ function deviceRow(device) {
   const tv = textElement("button", "small secondary", "TV 제어");
   tv.disabled = !device.approved;
   tv.addEventListener("click", async () => {
-    const choice = window.prompt("명령을 입력하세요: ON, OFF, HDMI1, HDMI2, VOL+, VOL-", "ON");
-    const commands = { ON: ["power", { on: true }], OFF: ["power", { on: false }], HDMI1: ["input", { input: "HDMI1" }], HDMI2: ["input", { input: "HDMI2" }] };
-    let entry = commands[String(choice || "").toUpperCase()];
-    if (choice === "VOL+" || choice === "VOL-") { const v = Number(window.prompt("현재 볼륨을 입력하세요.", "30")); if (!Number.isInteger(v) || v < 0 || v > 100) return; entry = ["volume", { value: Math.max(0, Math.min(100, v + (choice === "VOL+" ? 5 : -5))) }]; }
-    if (!entry) return;
-    tv.disabled = true;
-    try { await api(`/api/devices/${device.id}/display/${entry[0]}`, { method: "POST", body: JSON.stringify(entry[1]) }); toast(`${device.displayName} TV 명령을 보냈습니다.`); }
-    catch (error) { toast(error.message, "error"); }
-    finally { tv.disabled = !device.approved; }
+    const dialog = document.createElement("dialog");
+    dialog.innerHTML = `<form method="dialog"><h3>${device.displayName} TV 제어</h3><div class="dialog-actions"></div><button value="cancel" class="small secondary">닫기</button></form>`;
+    const actions = dialog.querySelector(".dialog-actions");
+    const commands = [["전원 ON", "power", { on: true }], ["전원 OFF", "power", { on: false }], ["HDMI1", "input", { input: "HDMI1" }], ["HDMI2", "input", { input: "HDMI2" }], ["볼륨 +", "volume", { value: 55 }], ["볼륨 −", "volume", { value: 45 }]];
+    for (const [label, kind, payload] of commands) { const b = textElement("button", "small primary-soft", label); b.type = "button"; b.addEventListener("click", async () => { b.disabled = true; try { await api(`/api/devices/${device.id}/display/${kind}`, { method: "POST", body: JSON.stringify(payload) }); toast(`${device.displayName}에 ${label} 명령을 보냈습니다.`); dialog.close(); } catch (error) { toast(error.message, "error"); b.disabled = false; } }); actions.append(b); }
+    document.body.append(dialog); dialog.addEventListener("close", () => dialog.remove(), { once: true }); dialog.showModal();
   });
   actions.append(tv);
-  const volume = textElement("button", "small secondary", "볼륨");
-  volume.disabled = !device.approved;
-  volume.addEventListener("click", async () => {
-    const value = Number(window.prompt("볼륨을 0~100으로 입력하세요.", "30"));
-    if (!Number.isInteger(value) || value < 0 || value > 100) return;
-    volume.disabled = true;
-    try { await api(`/api/devices/${device.id}/display/volume`, { method: "POST", body: JSON.stringify({ value }) }); toast(`${device.displayName} 볼륨 ${value} 명령을 보냈습니다.`); }
-    catch (error) { toast(error.message, "error"); }
-    finally { volume.disabled = !device.approved; }
-  });
-  actions.append(volume);
   const edit = textElement("button", "small secondary", "수정");
   edit.addEventListener("click", () => {
     $("#renameDeviceId").value = device.id;
