@@ -16,4 +16,9 @@ internal sealed record HealthPayload(
     string? ForegroundApp,
     bool IvisionRunning,
     UmeInstallation? Ume,
-    IReadOnlyList<UmeInstallation> InstalledUmeVersions);
+    IReadOnlyList<UmeInstallation> InstalledUmeVersions)
+{
+    public DisplayHealth Display { get; init; } = new(false, null, null, null);
+}
+
+internal sealed record DisplayHealth(bool Enabled, string? Vendor, string? Model, string? Port);

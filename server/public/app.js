@@ -160,7 +160,8 @@ function deviceRow(device) {
     finally { runUme.disabled = !device.approved; }
   });
   const tv = textElement("button", "small secondary", "TV 제어");
-  tv.disabled = !device.approved;
+  tv.disabled = !device.approved || !device.displayEnabled;
+  if (!device.displayEnabled) tv.title = "이 장비는 TV 제어가 비활성화되어 있습니다.";
   tv.addEventListener("click", async () => {
     let current = {};
     try { const s = await api(`/api/devices/${device.id}/display/status`); current = s.display || {}; } catch {}

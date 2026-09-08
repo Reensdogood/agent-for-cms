@@ -398,6 +398,8 @@ function statusFor(lastSeenAt) {
 }
 
 function deviceDto(row) {
+  let displayEnabled = false;
+  try { displayEnabled = Boolean(JSON.parse(row.last_health_json || "{}").display?.enabled); } catch {}
   return {
     id: row.id,
     installationId: row.installation_id,
@@ -418,6 +420,7 @@ function deviceDto(row) {
     ivisionRunning: Boolean(row.ivision_running),
     foregroundApp: row.foreground_app,
     lastSeenAt: row.last_seen_at,
+    displayEnabled,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -868,6 +871,8 @@ async function handleApi(req, res, url) {
     if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
     if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 제어할 수 있습니다." });
     if (!device.approved) return json(res, 400, { error: "승인된 장비만 제어할 수 있습니다." });
+    const healthRow = db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(device.id);
+    try { if (!JSON.parse(healthRow?.last_health_json || "{}").display?.enabled) return json(res, 409, { error: "이 장비는 TV 제어가 비활성화되어 있습니다." }); } catch { return json(res, 409, { error: "장비의 TV 제어 설정을 확인할 수 없습니다." }); }
     const body = await readJson(req);
     const kind = displayCommandMatch[2].toLowerCase();
     let payload;
@@ -921,7 +926,8 @@ async function handleApi(req, res, url) {
     const args = sameRegionOnly(session) ? [session.regionId] : [];
     const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND status = 'online'${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND status = 'online'${scope}`).all(...args);
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
-    const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, `display.${kind}`, JSON.stringify(payload), now()); return { deviceId: row.id, commandId: id }; });
+    const enabledRows = rows.filter((row) => { try { return Boolean(JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(row.id)?.last_health_json || "{}").display?.enabled); } catch { return false; } });
+    const commandIds = enabledRows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, `display.${kind}`, JSON.stringify(payload), now()); return { deviceId: row.id, commandId: id }; });
     audit(session.username, `display.bulk.${kind}`, "ALL", { payload, queued: commandIds.length });
     return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
   }

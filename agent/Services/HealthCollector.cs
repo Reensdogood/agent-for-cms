@@ -31,7 +31,10 @@ internal sealed class HealthCollector
             GetForegroundProcessName(),
             IsProcessRunning("i-Vision.Player"),
             versions.FirstOrDefault(),
-            versions);
+            versions)
+        {
+            Display = new DisplayHealth(_settings.Display.Enabled, _settings.Display.Vendor, _settings.Display.Model, _settings.Display.Port)
+        };
     }
 
     private static bool IsProcessRunning(string processName)
