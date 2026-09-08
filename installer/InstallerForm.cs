@@ -62,7 +62,7 @@ internal sealed class InstallerForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(44, 34, 44, 42),
             ColumnCount = 1,
-            RowCount = 13,
+            RowCount = 12,
         };
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
@@ -85,7 +85,6 @@ internal sealed class InstallerForm : Form
         panel.Controls.Add(Field("Samsung 모델", new Label { Text = "LH75QET (고정)", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }));
         panel.Controls.Add(Field("디스플레이 COM 포트", _displayPort));
         panel.Controls.Add(Field("TV 제어", _displayEnabled));
-        panel.Controls.Add(InstallPath());
         panel.Controls.Add(_install);
         panel.Controls.Add(_uninstall);
         panel.Controls.Add(_status);
