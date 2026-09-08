@@ -133,7 +133,7 @@ function deviceRow(device) {
     tableCell(device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""}` : "미감지"),
     tableCell(device.ivisionRunning ? "실행" : "미실행"), tableCell(formatTime(device.lastSeenAt)));
   const actions = document.createElement("td");
-  const displayState = textElement("div", "display-state", "TV 상태: 확인 전");
+  const displayState = textElement("div", "display-state", "TV 상태: 미확인");
   actions.append(displayState);
   if (!device.approved) {
     const approve = textElement("button", "small primary-soft", "승인");
@@ -164,11 +164,13 @@ function deviceRow(device) {
   const tv = textElement("button", "small secondary", "TV 제어");
   tv.disabled = !device.approved;
   tv.addEventListener("click", async () => {
+    let current = {};
+    try { const s = await api(`/api/devices/${device.id}/display/status`); current = s.display || {}; } catch {}
     const dialog = document.createElement("dialog");
     dialog.innerHTML = `<form method="dialog"><h3>${device.displayName} TV 제어</h3><div class="dialog-actions"></div><button value="cancel" class="small secondary">닫기</button></form>`;
     const actions = dialog.querySelector(".dialog-actions");
     const commands = [["전원 ON", "power", { on: true }], ["전원 OFF", "power", { on: false }], ["HDMI1", "input", { input: "HDMI1" }], ["HDMI2", "input", { input: "HDMI2" }], ["현재 볼륨 +", "volume", { value: 55 }], ["현재 볼륨 −", "volume", { value: 45 }]];
-    for (const [label, kind, payload] of commands) { const b = textElement("button", "small primary-soft", label); b.type = "button"; b.addEventListener("click", async () => { b.disabled = true; try { await api(`/api/devices/${device.id}/display/${kind}`, { method: "POST", body: JSON.stringify(payload) }); toast(`${device.displayName}에 ${label} 명령을 보냈습니다.`); dialog.close(); } catch (error) { toast(error.message, "error"); b.disabled = false; } }); actions.append(b); }
+    for (const [label, kind, payload] of commands) { const active = (label.includes("ON") && String(current.power).toLowerCase() === "on") || (label.includes("OFF") && String(current.power).toLowerCase() === "off") || (label === current.input); const b = textElement("button", `small primary-soft${active ? " active-display" : ""}`, active ? `✓ ${label}` : label); b.type = "button"; b.addEventListener("click", async () => { b.disabled = true; try { await api(`/api/devices/${device.id}/display/${kind}`, { method: "POST", body: JSON.stringify(payload) }); toast(`${device.displayName}에 ${label} 명령을 보냈습니다.`); dialog.close(); } catch (error) { toast(error.message, "error"); b.disabled = false; } }); actions.append(b); }
     document.body.append(dialog); dialog.addEventListener("close", () => dialog.remove(), { once: true }); dialog.showModal();
   });
   actions.append(tv);

@@ -237,3 +237,5 @@ legend { color: #3a3a3c; font-size: .8rem; font-weight: 680; }
   .panel, .summary article, .login-card, .topbar, input { border-color: #6e6e73; }
 }
  .display-state { display: block; margin-bottom: 6px; color: #636366; font-size: 12px; font-weight: 600; }
+ .active-display { color: #d70015 !important; font-weight: 800; border-color: #d70015 !important; }
+ .active-display:nth-child(n+3):nth-child(-n+4) { color: #0066cc !important; border-color: #0066cc !important; }
