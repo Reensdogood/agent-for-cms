@@ -1592,6 +1592,14 @@ Codex는 작업 종료 시 완료한 항목만 `[x]` 처리한다.
 - Focused P2-4 confirmed-protocol/client tests: 14 passed, 0 failed after the timeout case was added.
 - Brightness Get/Set is intentionally SKIPPED because `0x25` is not documented for QE75T; the client returns `UNSUPPORTED_COMMAND` without writing any packet. Power/Input/Volume protocol work is complete for this stage; hardware verification remains P2-12.
 
+### Agent/Server Integration Record (2026-09-08)
+
+- Agent persisted configuration now accepts `display.enabled`, `display.vendor`, `display.model`, and an optional administrator-selected `display.port`.
+- Agent command execution supports logical `display.power`, `display.input` (HDMI1/HDMI2), and `display.volume` commands. Every SET uses Samsung ACK plus state re-read verification; Brightness is not exposed.
+- Server added authenticated, role-checked individual endpoints: `POST /api/devices/{id}/display/power`, `/input`, `/volume`, plus `GET /api/devices/{id}/display/status`.
+- Server endpoints enqueue logical commands only; Samsung MDC bytes remain inside the Windows Agent.
+- Server API tests and Agent Release build pass. Hardware status polling, heartbeat display payload, bulk commands, frontend, and deployment remain subsequent P2 steps.
+
 ---
 
 # 50. Final Report

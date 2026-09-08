@@ -859,6 +859,49 @@ async function handleApi(req, res, url) {
     return json(res, 202, { queued });
   }
 
+  const displayCommandMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/display\/(power|input|volume)$/i);
+  if (req.method === "POST" && displayCommandMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const device = db.prepare("SELECT id, region_id, approved FROM devices WHERE id = ?").get(displayCommandMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 제어할 수 있습니다." });
+    if (!device.approved) return json(res, 400, { error: "승인된 장비만 제어할 수 있습니다." });
+    const body = await readJson(req);
+    const kind = displayCommandMatch[2].toLowerCase();
+    let payload;
+    if (kind === "power") {
+      if (typeof body.on !== "boolean") return json(res, 400, { error: "on은 boolean이어야 합니다." });
+      payload = { on: body.on };
+    } else if (kind === "input") {
+      const input = String(body.input || "").toUpperCase();
+      if (!["HDMI1", "HDMI2"].includes(input)) return json(res, 400, { error: "input은 HDMI1 또는 HDMI2여야 합니다." });
+      payload = { input };
+    } else {
+      const value = Number(body.value);
+      if (!Number.isInteger(value) || value < 0 || value > 100) return json(res, 400, { error: "volume은 0~100 정수여야 합니다." });
+      payload = { value };
+    }
+    const commandId = crypto.randomUUID();
+    db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(commandId, device.id, `display.${kind}`, JSON.stringify(payload), now());
+    audit(session.username, `display.${kind}`, device.id, { commandId, payload });
+    return json(res, 202, { commandId, status: "pending" });
+  }
+
+  const displayStatusMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/display\/status$/i);
+  if (req.method === "GET" && displayStatusMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const device = db.prepare("SELECT * FROM devices WHERE id = ?").get(displayStatusMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 조회할 수 있습니다." });
+    let health = {};
+    try { health = JSON.parse(device.last_health_json || "{}"); } catch {}
+    return json(res, 200, { display: health.display || null, lastSeenAt: device.last_seen_at, online: device.status === "online" });
+  }
+
   const deviceMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)$/i);
   if (req.method === "PUT" && deviceMatch) {
     const session = requireAdmin(req, res, true);
