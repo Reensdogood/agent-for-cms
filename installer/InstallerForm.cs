@@ -13,15 +13,19 @@ internal sealed class InstallerForm : Form
     private readonly TextBox _enrollmentKey = new() { UseSystemPasswordChar = true, PlaceholderText = "관리자 화면에서 발급한 장비 등록 키" };
     private readonly TextBox _deviceName = new() { Text = Environment.MachineName };
     private readonly ComboBox _displayPort = new() { DropDownStyle = ComboBoxStyle.DropDown };
+    private readonly CheckBox _displayEnabled = new() { Text = "이 장비에서 TV 제어 사용", Checked = true, AutoSize = true };
     private readonly Button _install = new() { Text = "Agent 설치", Height = 48, Dock = DockStyle.Fill, Margin = new Padding(0) };
     private readonly Button _uninstall = new() { Text = "기존 Agent 제거", Height = 42, Dock = DockStyle.Fill, Margin = new Padding(0) };
     private readonly Label _status = new() { AutoSize = false, Height = 44, ForeColor = Color.FromArgb(99, 99, 102), TextAlign = ContentAlignment.MiddleLeft };
     private readonly string _installDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Funnet", "funnet-gwanak-agent");
 
-    public InstallerForm()
+    private readonly bool _configureOnly;
+    private string _existingEnrollmentKey = "";
+    public InstallerForm(bool configureOnly = false)
     {
+        _configureOnly = configureOnly;
         Text = "Funnet 관악 Agent 설치";
-        Width = 560; Height = 790; MinimumSize = new Size(540, 760);
+        Width = 560; Height = 850; MinimumSize = new Size(540, 810);
         StartPosition = FormStartPosition.CenterScreen; Font = new Font("Segoe UI", 10F);
         BackColor = Color.FromArgb(245, 245, 247); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
 
@@ -58,7 +62,7 @@ internal sealed class InstallerForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(44, 34, 44, 42),
             ColumnCount = 1,
-            RowCount = 10,
+            RowCount = 13,
         };
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
@@ -80,6 +84,7 @@ internal sealed class InstallerForm : Form
         panel.Controls.Add(Field("장비명", _deviceName));
         panel.Controls.Add(Field("Samsung 모델", new Label { Text = "LH75QET (고정)", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }));
         panel.Controls.Add(Field("디스플레이 COM 포트", _displayPort));
+        panel.Controls.Add(Field("TV 제어", _displayEnabled));
         panel.Controls.Add(InstallPath());
         panel.Controls.Add(_install);
         panel.Controls.Add(_uninstall);
@@ -90,11 +95,36 @@ internal sealed class InstallerForm : Form
         StyleTextBox(_deviceName);
         _displayPort.Dock = DockStyle.Fill;
         _displayPort.Items.AddRange(SerialPort.GetPortNames().OrderBy(x => x).Cast<object>().ToArray());
+        LoadExistingSettings();
         StylePrimaryButton(_install);
         StyleSecondaryButton(_uninstall);
         _install.Click += async (_, _) => await InstallAsync();
         _uninstall.Click += (_, _) => Uninstall();
         AcceptButton = _install;
+    }
+
+    private void LoadExistingSettings()
+    {
+        if (!_configureOnly) return;
+        var path = Path.Combine(_installDirectory, "agent-settings.json");
+        if (!File.Exists(path)) return;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            if (root.TryGetProperty("serverBaseUrl", out var server)) _serverUrl.Text = server.GetString() ?? _serverUrl.Text;
+            if (root.TryGetProperty("enrollmentKey", out var key)) _existingEnrollmentKey = key.GetString() ?? "";
+            if (root.TryGetProperty("localName", out var name)) _deviceName.Text = name.GetString() ?? _deviceName.Text;
+            if (root.TryGetProperty("display", out var display))
+            {
+                if (display.TryGetProperty("enabled", out var enabled)) _displayEnabled.Checked = enabled.GetBoolean();
+                if (display.TryGetProperty("port", out var port) && port.ValueKind == JsonValueKind.String) _displayPort.Text = port.GetString() ?? "";
+            }
+            _install.Text = "설정 저장";
+            _uninstall.Text = "Agent 제거";
+            Text = "Funnet 관악 Agent 설정";
+        }
+        catch { }
     }
 
     private static Image LoadLogo()
@@ -176,7 +206,7 @@ internal sealed class InstallerForm : Form
     {
         if (!Uri.TryCreate(_serverUrl.Text.Trim(), UriKind.Absolute, out var server) || (server.Scheme != "https" && server.Scheme != "http"))
         { ShowStatus("서버 주소를 확인해 주세요.", true); return; }
-        if (_enrollmentKey.Text.Trim().Length < 16) { ShowStatus("장비 등록 키는 16자 이상이어야 합니다.", true); return; }
+        if (!_configureOnly && _enrollmentKey.Text.Trim().Length < 16) { ShowStatus("장비 등록 키는 16자 이상이어야 합니다.", true); return; }
         if (string.IsNullOrWhiteSpace(_deviceName.Text)) { ShowStatus("장비명을 입력해 주세요.", true); return; }
         _install.Enabled = false; ShowStatus("설치 중입니다…");
         try
@@ -186,8 +216,11 @@ internal sealed class InstallerForm : Form
             await using (var source = Assembly.GetExecutingAssembly().GetManifestResourceStream("AgentPayload") ?? throw new InvalidOperationException("Agent 파일이 설치기에 포함되지 않았습니다."))
             await using (var output = new FileStream(executable, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true)) await source.CopyToAsync(output);
             var port = _displayPort.Text.Trim();
-            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = _enrollmentKey.Text.Trim(), localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = !string.IsNullOrWhiteSpace(port), vendor = "samsung", model = "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
+            var key = string.IsNullOrWhiteSpace(_enrollmentKey.Text) ? _existingEnrollmentKey : _enrollmentKey.Text.Trim();
+            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = key, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
             await File.WriteAllTextAsync(Path.Combine(_installDirectory, "agent-settings.json"), JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
+            var setupCopy = Path.Combine(_installDirectory, "funnet-gwanak-agent-setup.exe");
+            if (!_configureOnly && !string.Equals(Process.GetCurrentProcess().MainModule?.FileName, setupCopy, StringComparison.OrdinalIgnoreCase)) File.Copy(Process.GetCurrentProcess().MainModule?.FileName ?? "", setupCopy, true);
             using (var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) run.SetValue(RunValueName, $"\"{executable}\"");
             Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = _installDirectory });
             _enrollmentKey.Clear();

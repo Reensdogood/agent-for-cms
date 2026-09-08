@@ -161,7 +161,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         try
         {
             var setup = Path.Combine(AppContext.BaseDirectory, "funnet-gwanak-agent-setup.exe");
-            if (File.Exists(setup)) Process.Start(new ProcessStartInfo(setup) { UseShellExecute = true });
+            if (File.Exists(setup)) Process.Start(new ProcessStartInfo(setup, "--configure") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(setup) });
             else Process.Start(new ProcessStartInfo("notepad.exe", $"\"{_settings.SettingsFilePath}\"") { UseShellExecute = true });
         }
         catch (Exception exception) { SetStatus($"설정 열기 실패: {exception.Message}"); }
