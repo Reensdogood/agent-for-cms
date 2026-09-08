@@ -9,5 +9,6 @@ installer/bin/
 installer/obj/
 installer/payload/
 dist/
+dist-test/
 deploy/.env
 *.log
