@@ -2,6 +2,8 @@ server/data/
 server/packages/
 agent/bin/
 agent/obj/
+agent.tests/bin/
+agent.tests/obj/
 agent/agent-settings.json
 installer/bin/
 installer/obj/
