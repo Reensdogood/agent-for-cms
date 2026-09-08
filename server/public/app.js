@@ -472,6 +472,18 @@ $("#userForm").addEventListener("submit", async (event) => {
 });
 
 $("#addScheduleButton").addEventListener("click", () => openSchedule());
+$$('[data-bulk-display]').forEach((button) => button.addEventListener("click", async () => {
+  const kind = button.dataset.bulkDisplay;
+  const value = button.dataset.value;
+  if (!await confirmAction(`${value} 명령을 보낼까요?`, "현재 온라인인 승인 장비에만 전송됩니다.", "전송")) return;
+  button.disabled = true;
+  try {
+    const payload = kind === "power" ? { on: value === "on" } : { input: value };
+    const result = await api(`/api/display/bulk/${kind}`, { method: "POST", body: JSON.stringify(payload) });
+    toast(`${result.queued}대의 온라인 장비에 ${value} 명령을 전송했습니다.`);
+  } catch (error) { toast(error.message, "error"); }
+  finally { button.disabled = false; }
+}));
 $("#scheduleForm").addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();
