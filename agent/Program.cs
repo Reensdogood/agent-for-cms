@@ -40,7 +40,7 @@ internal static class Program
             using var api = new AgentApiClient(onceSettings, onceIdentityStore, onceIdentity);
             api.EnsureRegisteredAsync(health, CancellationToken.None).GetAwaiter().GetResult();
             api.SendHeartbeatAsync(health, CancellationToken.None).GetAwaiter().GetResult();
-            var executor = new AgentCommandExecutor(api, collector, new UmeWindowController());
+            var executor = new AgentCommandExecutor(api, collector, new UmeWindowController(), onceSettings);
             executor.ExecutePendingAsync(CancellationToken.None).GetAwaiter().GetResult();
             Console.WriteLine(JsonSerializer.Serialize(health, JsonDefaults.Indented));
             return;

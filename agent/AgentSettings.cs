@@ -10,6 +10,7 @@ internal sealed class AgentSettings
     public string LocalName { get; init; } = Environment.MachineName;
     public int HeartbeatSeconds { get; init; } = 30;
     public int CommandPollSeconds { get; init; } = 5;
+    public DisplaySettings Display { get; init; } = new();
     [JsonIgnore]
     public string SettingsFilePath { get; init; } = "";
 
@@ -51,9 +52,18 @@ internal sealed class AgentSettings
             localName = LocalName,
             heartbeatSeconds = HeartbeatSeconds,
             commandPollSeconds = CommandPollSeconds,
+            display = Display,
         };
         var temporary = SettingsFilePath + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(sanitized, JsonDefaults.Indented));
         File.Move(temporary, SettingsFilePath, true);
     }
+}
+
+internal sealed class DisplaySettings
+{
+    public bool Enabled { get; init; }
+    public string Vendor { get; init; } = "samsung";
+    public string Model { get; init; } = "LH75QET";
+    public string? Port { get; init; }
 }

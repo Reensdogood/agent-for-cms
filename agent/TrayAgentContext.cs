@@ -25,7 +25,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         _identity = identityStore.LoadOrCreate();
         _healthCollector = new HealthCollector(settings, _identity);
         _apiClient = new AgentApiClient(settings, identityStore, _identity);
-        _commandExecutor = new AgentCommandExecutor(_apiClient, _healthCollector, _umeController);
+        _commandExecutor = new AgentCommandExecutor(_apiClient, _healthCollector, _umeController, _settings);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem("상태 확인", null, async (_, _) => await SendHealthNowAsync()));
