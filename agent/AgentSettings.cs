@@ -38,6 +38,7 @@ internal sealed class AgentSettings
             LocalName = string.IsNullOrWhiteSpace(localName) ? settings.LocalName : localName,
             HeartbeatSeconds = Math.Clamp(settings.HeartbeatSeconds, 10, 600),
             CommandPollSeconds = Math.Clamp(settings.CommandPollSeconds, 2, 60),
+            Display = settings.Display ?? new DisplaySettings(),
             SettingsFilePath = filePath,
         };
     }
