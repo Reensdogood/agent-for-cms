@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.Win32;
+using System.IO.Ports;
 
 namespace Funnet.Gwanak.Agent.Installer;
 
@@ -11,6 +12,7 @@ internal sealed class InstallerForm : Form
     private readonly TextBox _serverUrl = new() { Text = "https://agent.funnet.kr", PlaceholderText = "https://agent.funnet.kr" };
     private readonly TextBox _enrollmentKey = new() { UseSystemPasswordChar = true, PlaceholderText = "관리자 화면에서 발급한 장비 등록 키" };
     private readonly TextBox _deviceName = new() { Text = Environment.MachineName };
+    private readonly ComboBox _displayPort = new() { DropDownStyle = ComboBoxStyle.DropDown };
     private readonly Button _install = new() { Text = "Agent 설치", Height = 48, Dock = DockStyle.Fill, Margin = new Padding(0) };
     private readonly Button _uninstall = new() { Text = "기존 Agent 제거", Height = 42, Dock = DockStyle.Fill, Margin = new Padding(0) };
     private readonly Label _status = new() { AutoSize = false, Height = 44, ForeColor = Color.FromArgb(99, 99, 102), TextAlign = ContentAlignment.MiddleLeft };
@@ -74,6 +76,8 @@ internal sealed class InstallerForm : Form
         panel.Controls.Add(Field("서버 주소", _serverUrl));
         panel.Controls.Add(Field("장비 등록 키", _enrollmentKey));
         panel.Controls.Add(Field("장비명", _deviceName));
+        panel.Controls.Add(Field("Samsung 모델", new Label { Text = "LH75QET (고정)", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }));
+        panel.Controls.Add(Field("디스플레이 COM 포트", _displayPort));
         panel.Controls.Add(InstallPath());
         panel.Controls.Add(_install);
         panel.Controls.Add(_uninstall);
@@ -82,6 +86,8 @@ internal sealed class InstallerForm : Form
         StyleTextBox(_serverUrl);
         StyleTextBox(_enrollmentKey);
         StyleTextBox(_deviceName);
+        _displayPort.Dock = DockStyle.Fill;
+        _displayPort.Items.AddRange(SerialPort.GetPortNames().OrderBy(x => x).Cast<object>().ToArray());
         StylePrimaryButton(_install);
         StyleSecondaryButton(_uninstall);
         _install.Click += async (_, _) => await InstallAsync();
@@ -177,7 +183,8 @@ internal sealed class InstallerForm : Form
             var executable = Path.Combine(_installDirectory, "funnet-gwanak-agent.exe");
             await using (var source = Assembly.GetExecutingAssembly().GetManifestResourceStream("AgentPayload") ?? throw new InvalidOperationException("Agent 파일이 설치기에 포함되지 않았습니다."))
             await using (var output = new FileStream(executable, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true)) await source.CopyToAsync(output);
-            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = _enrollmentKey.Text.Trim(), localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5 };
+            var port = _displayPort.Text.Trim();
+            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = _enrollmentKey.Text.Trim(), localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = !string.IsNullOrWhiteSpace(port), vendor = "samsung", model = "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
             await File.WriteAllTextAsync(Path.Combine(_installDirectory, "agent-settings.json"), JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
             using (var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) run.SetValue(RunValueName, $"\"{executable}\"");
             Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = _installDirectory });

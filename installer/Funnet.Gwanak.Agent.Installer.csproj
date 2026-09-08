@@ -17,6 +17,7 @@
     <ApplicationIcon>assets\funnet-tray-icon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
     <EmbeddedResource Include="payload\funnet-gwanak-agent.exe" LogicalName="AgentPayload" />
     <EmbeddedResource Include="assets\funnet-logo.png" LogicalName="FunnetLogo" />
     <EmbeddedResource Include="assets\funnet-tray-icon.ico" LogicalName="FunnetTrayIcon" />
