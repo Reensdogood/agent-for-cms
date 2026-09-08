@@ -1,6 +1,7 @@
 using Funnet.Gwanak.Agent.Infrastructure;
 using Funnet.Gwanak.Agent.Services;
 using System.Reflection;
+using System.Diagnostics;
 
 namespace Funnet.Gwanak.Agent;
 
@@ -29,6 +30,8 @@ internal sealed class TrayAgentContext : ApplicationContext
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem("상태 확인", null, async (_, _) => await SendHealthNowAsync()));
+        menu.Items.Add(new ToolStripMenuItem("설정 열기", null, (_, _) => OpenSettings()));
+        menu.Items.Add(new ToolStripMenuItem("Agent 재시작", null, (_, _) => RestartAgent()));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("종료", null, (_, _) => ExitAgent()));
 
@@ -152,6 +155,23 @@ internal sealed class TrayAgentContext : ApplicationContext
         _notifyIcon.Dispose();
         _apiClient.Dispose();
         ExitThread();
+    }
+
+    private void OpenSettings()
+    {
+        try { Process.Start(new ProcessStartInfo("notepad.exe", $"\"{_settings.SettingsFilePath}\"") { UseShellExecute = true }); }
+        catch (Exception exception) { SetStatus($"설정 열기 실패: {exception.Message}"); }
+    }
+
+    private void RestartAgent()
+    {
+        try
+        {
+            var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Agent 실행 경로를 확인할 수 없습니다.");
+            Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory });
+            ExitAgent();
+        }
+        catch (Exception exception) { SetStatus($"재시작 실패: {exception.Message}"); }
     }
 
     protected override void Dispose(bool disposing)
