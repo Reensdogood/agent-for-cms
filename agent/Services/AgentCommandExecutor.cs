@@ -161,8 +161,20 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     }
 
     private static System.Diagnostics.Process[] GetIvisionProcesses()
-        => System.Diagnostics.Process.GetProcessesByName("i-Vision.PlayAgent")
-            .Concat(System.Diagnostics.Process.GetProcessesByName("i-Vision.Player"))
+        => System.Diagnostics.Process.GetProcesses()
+            .Where(process =>
+            {
+                try
+                {
+                    var name = process.ProcessName;
+                    var path = process.MainModule?.FileName ?? "";
+                    return name.Contains("i-vision", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("ivision", StringComparison.OrdinalIgnoreCase)
+                        || (name.Contains("updater", StringComparison.OrdinalIgnoreCase) && path.Contains("i-Vision Player", StringComparison.OrdinalIgnoreCase))
+                        || path.Contains(@"i-Vision Player", StringComparison.OrdinalIgnoreCase);
+                }
+                catch { process.Dispose(); return false; }
+            })
             .ToArray();
 
     private async Task<object> ProbeAsync(CancellationToken cancellationToken)

@@ -34,9 +34,9 @@ internal static class Program
 
         if (args.Any(value => string.Equals(value, "--diagnose-ivision", StringComparison.OrdinalIgnoreCase)))
         {
-            var names = new[] { "i-Vision.Player", "i-Vision.PlayAgent" };
             var rows = new List<Dictionary<string, object?>>();
-            foreach (var name in names) foreach (var process in Process.GetProcessesByName(name))
+            // 이름이 Player/PlayAgent로 고정되지 않은 Updater·Launcher도 포함한다.
+            foreach (var process in Process.GetProcesses().Where(IsIvisionRelatedProcess))
             {
                 var row = new Dictionary<string, object?> { ["name"] = process.ProcessName, ["pid"] = process.Id };
                 try { row["path"] = process.MainModule?.FileName; row["hasMainWindow"] = process.MainWindowHandle != IntPtr.Zero; row["canClose"] = !process.HasExited; row["startedAt"] = process.StartTime; var info = new ManagementObjectSearcher($"SELECT ParentProcessId, CommandLine FROM Win32_Process WHERE ProcessId = {process.Id}").Get().Cast<ManagementObject>().FirstOrDefault(); row["parentPid"] = info?["ParentProcessId"]; row["commandLine"] = info?["CommandLine"]; }
@@ -44,7 +44,7 @@ internal static class Program
                 finally { process.Dispose(); }
                 rows.Add(row);
             }
-            var report = JsonSerializer.Serialize(new { timestamp = DateTimeOffset.Now, processes = rows }, JsonDefaults.Indented);
+            var report = JsonSerializer.Serialize(new { timestamp = DateTimeOffset.Now, processes = rows, startup = CollectIvisionStartupEntries() }, JsonDefaults.Indented);
             var reportPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Funnet", "funnet-gwanak-agent", "ivision-diagnostic.json");
             Directory.CreateDirectory(Path.GetDirectoryName(reportPath)!);
             File.WriteAllText(reportPath, report);
@@ -79,5 +79,46 @@ internal static class Program
         var settings = AgentSettings.Load();
         var identityStore = new DeviceIdentityStore();
         Application.Run(new TrayAgentContext(settings, identityStore));
+    }
+
+    private static bool IsIvisionRelatedProcess(Process process)
+    {
+        try
+        {
+            var name = process.ProcessName;
+            var path = process.MainModule?.FileName ?? "";
+            return name.Contains("ivision", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("i-vision", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("updater", StringComparison.OrdinalIgnoreCase) && path.Contains("i-vision", StringComparison.OrdinalIgnoreCase)
+                || path.Contains(@"i-Vision Player", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    private static object CollectIvisionStartupEntries()
+    {
+        var result = new List<object>();
+        try
+        {
+            using var run = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+            if (run is not null)
+                foreach (var name in run.GetValueNames())
+                {
+                    var value = run.GetValue(name)?.ToString() ?? "";
+                    if (name.Contains("ivision", StringComparison.OrdinalIgnoreCase) || value.Contains("i-vision", StringComparison.OrdinalIgnoreCase)) result.Add(new { type = "run", name, value });
+                }
+        }
+        catch { }
+        try
+        {
+            using var searcher = new ManagementObjectSearcher("SELECT Name, State, PathName FROM Win32_Service");
+            foreach (ManagementObject service in searcher.Get())
+            {
+                var name = service["Name"]?.ToString() ?? ""; var path = service["PathName"]?.ToString() ?? "";
+                if (name.Contains("ivision", StringComparison.OrdinalIgnoreCase) || path.Contains("i-vision", StringComparison.OrdinalIgnoreCase)) result.Add(new { type = "service", name, state = service["State"]?.ToString(), value = path });
+            }
+        }
+        catch { }
+        return result;
     }
 }
