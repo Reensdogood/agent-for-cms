@@ -31,6 +31,7 @@
         <nav aria-label="주 메뉴">
           <button class="nav-item active" data-view="dashboard"><span>⌂</span>대시보드</button>
           <button class="nav-item" data-view="devices"><span>▣</span>장비 관리</button>
+          <button class="nav-item" data-view="system"><span>⚠</span>시스템 상태</button>
           <button class="nav-item" data-view="schedules"><span>◷</span>스케줄 실행</button>
           <button class="nav-item" data-view="releases"><span>⇩</span>업데이트 배포</button>
           <button class="nav-item" data-view="integrations"><span>↗</span>외부 관리</button>
@@ -75,6 +76,12 @@
         <section class="page" data-page="devices" hidden>
           <div class="page-actions"><div><h2>장비 관리</h2><p>장비 승인, 이름 수정, 즉시 상태 확인을 관리합니다.</p></div><input id="searchInput" type="search" placeholder="장비명 또는 ID 검색" aria-label="장비 검색"></div>
           <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>상태</th><th>지역</th><th>장비명</th><th>Device ID</th><th>Agent</th><th>UME</th><th>i-vision</th><th>마지막 응답</th><th>관리</th></tr></thead><tbody id="deviceRows"></tbody></table></div><p id="emptyState" class="empty">등록된 장비가 없습니다.</p></section>
+        </section>
+
+        <section class="page" data-page="system" hidden>
+          <div class="page-actions"><div><h2>시스템 상태</h2><p>장비별 최신 오류와 명령 처리 상태를 확인합니다.</p></div><button id="systemRefreshButton" class="secondary">상태 새로고침</button></div>
+          <section class="summary" aria-label="시스템 요약"><article class="total"><span>확인 장비</span><strong id="systemDeviceCount">0</strong><small id="systemOnlineCount">온라인 0</small></article><article><span>실패 명령</span><strong id="systemFailedCount">0</strong><small>최근 20건 기준</small></article><article><span>응답 대기</span><strong id="systemPendingCount">0</strong><small>처리되지 않은 명령</small></article></section>
+          <section class="panel table-panel"><div class="panel-head"><div><h3>장비별 최신 오류</h3><p>최근 명령 20건 중 실패하거나 응답이 없는 항목입니다.</p></div></div><div class="table-wrap"><table><thead><tr><th>장비</th><th>상태</th><th>명령</th><th>오류 내용</th><th>발생 시각</th></tr></thead><tbody id="systemErrorRows"></tbody></table></div><p id="systemErrorEmpty" class="empty">최근 오류가 없습니다.</p></section>
         </section>
 
         <section class="page" data-page="schedules" hidden>

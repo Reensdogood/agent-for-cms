@@ -13,7 +13,7 @@ let regionInfo = { serverBaseUrl: "", regions: [] };
 
 const pageMeta = {
   dashboard: ["OVERVIEW", "장비 현황"], devices: ["DEVICES", "장비 관리"],
-  schedules: ["SCHEDULE", "실행 스케줄"], releases: ["DISTRIBUTION", "UME 배포"],
+  schedules: ["SCHEDULE", "실행 스케줄"], system: ["SYSTEM", "시스템 상태"], releases: ["DISTRIBUTION", "UME 배포"],
   integrations: ["SERVICES", "외부 관리"], users: ["ACCESS", "사용자 관리"],
 };
 
@@ -200,6 +200,18 @@ async function loadDevices() {
   renderDevices();
 }
 
+async function loadSystemStatus() {
+  const result = await api("/api/commands?limit=20");
+  const failed = result.commands.filter((command) => command.status === "failed" || (command.status !== "completed" && command.attempts >= 5));
+  const pending = result.commands.filter((command) => command.status === "pending" || command.status === "delivered");
+  $("#systemDeviceCount").textContent = devices.length;
+  $("#systemOnlineCount").textContent = `온라인 ${devices.filter((device) => device.status === "online").length}`;
+  $("#systemFailedCount").textContent = failed.length;
+  $("#systemPendingCount").textContent = pending.length;
+  const rows = failed.map((command) => { const row = document.createElement("tr"); const detail = command.result?.error || (command.status === "failed" ? "명령 실행 실패" : "응답 없음"); row.append(tableCell(command.deviceName, "device-name"), tableCell(command.status === "failed" ? "실패" : "응답 없음"), tableCell(command.type), tableCell(detail), tableCell(formatTime(command.completedAt || command.createdAt))); return row; });
+  $("#systemErrorRows").replaceChildren(...rows); $("#systemErrorEmpty").hidden = rows.length > 0;
+}
+
 async function loadEnrollmentInfo() {
   regionInfo = await api("/api/regions");
   $("#agentServerUrl").value = regionInfo.serverBaseUrl;
@@ -384,6 +396,7 @@ function showPage(name) {
   if (name === "schedules") loadSchedules().catch(handleError);
   if (name === "releases") loadReleases().catch(handleError);
   if (name === "users") loadUsers().catch(handleError);
+  if (name === "system") Promise.all([loadDevices(), loadSystemStatus()]).catch(handleError);
 }
 
 function handleError(error) { toast(error.message || "요청을 처리하지 못했습니다.", "error"); }
@@ -429,6 +442,7 @@ $("#logoutButton").addEventListener("click", async () => {
   await api("/api/auth/logout", { method: "POST" }); csrfToken = ""; appView.hidden = true; loginView.hidden = false; $("#username").focus();
 });
 $("#refreshButton").addEventListener("click", () => loadDevices().then(() => toast("최신 상태로 갱신했습니다.")).catch(handleError));
+$("#systemRefreshButton").addEventListener("click", () => Promise.all([loadDevices(), loadSystemStatus()]).then(() => toast("시스템 상태를 갱신했습니다.")).catch(handleError));
 $("#searchInput").addEventListener("input", renderDevices);
 $("#menuButton").addEventListener("click", () => appView.classList.toggle("menu-open"));
 $$(".nav-item").forEach((item) => item.addEventListener("click", () => showPage(item.dataset.view)));
