@@ -67,6 +67,10 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         for (var attempt = 0; attempt < 6 && GetIvisionProcesses().Length > 0; attempt++)
         {
             foreach (var process in GetIvisionProcesses()) { stopped += KillProcess(process); }
+            // i-Vision tray/launcher가 별도 부모로 남아 있으면 Process.Kill만으로
+            // 재생성이 발생할 수 있으므로 이미지 전체를 Windows에 함께 종료시킨다.
+            RunTaskKill("i-Vision.PlayAgent.exe");
+            RunTaskKill("i-Vision.Player.exe");
             System.Threading.Thread.Sleep(350);
         }
         var remaining = GetIvisionProcesses();
@@ -130,6 +134,17 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         try { if (!process.HasExited) { process.Kill(true); process.WaitForExit(1200); return 1; } return 0; }
         catch { return 0; }
         finally { process.Dispose(); }
+    }
+
+    private static void RunTaskKill(string imageName)
+    {
+        try
+        {
+            using var command = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("taskkill", $"/F /T /IM \"{imageName}\"")
+            { CreateNoWindow = true, UseShellExecute = false });
+            command?.WaitForExit(1500);
+        }
+        catch { }
     }
 
     private static void WaitForIvisionExit(int milliseconds)
