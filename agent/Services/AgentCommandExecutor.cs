@@ -55,16 +55,19 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     {
         var processes = System.Diagnostics.Process.GetProcessesByName("i-Vision.Player");
         var count = 0;
-        try { foreach (var process in processes) { process.CloseMainWindow(); count++; } }
+        try { foreach (var process in processes) { process.CloseMainWindow(); if (!process.WaitForExit(3000)) process.Kill(true); count++; } }
         finally { foreach (var process in processes) process.Dispose(); }
-        return new { stopped = count };
+        var remaining = System.Diagnostics.Process.GetProcessesByName("i-Vision.Player");
+        try { if (remaining.Length > 0) throw new InvalidOperationException("i-vision 프로세스가 종료되지 않았습니다."); }
+        finally { foreach (var process in remaining) process.Dispose(); }
+        return new { stopped = count, running = false };
     }
 
     private static object RestartIvision()
     {
         string? path = null;
         var processes = System.Diagnostics.Process.GetProcessesByName("i-Vision.Player");
-        try { foreach (var process in processes) { try { path ??= process.MainModule?.FileName; } catch { } process.CloseMainWindow(); } }
+        try { foreach (var process in processes) { try { path ??= process.MainModule?.FileName; } catch { } process.CloseMainWindow(); if (!process.WaitForExit(3000)) process.Kill(true); } }
         finally { foreach (var process in processes) process.Dispose(); }
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
