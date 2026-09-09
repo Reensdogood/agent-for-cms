@@ -271,11 +271,13 @@ internal sealed class InstallerForm : Form
         if (MessageBox.Show("Agent 실행파일과 자동실행 등록을 제거할까요? 장비 식별 정보는 재설치를 위해 보존됩니다.", "Agent 제거", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try
         {
-            StopAgent(); using (var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) run.DeleteValue(RunValueName, false);
+            using (var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) run.DeleteValue(RunValueName, false);
+            StopAgent();
             var executable = Path.Combine(_installDirectory, "funnet-gwanak-agent.exe");
             var settings = Path.Combine(_installDirectory, "agent-settings.json");
             if (File.Exists(executable)) File.Delete(executable); if (File.Exists(settings)) File.Delete(settings);
             ShowStatus("Agent 실행파일과 자동실행 등록을 제거했습니다.");
+            BeginInvoke(Close);
         }
         catch (Exception exception) { ShowStatus(exception.Message, true); }
     }
@@ -284,8 +286,13 @@ internal sealed class InstallerForm : Form
     {
         foreach (var process in Process.GetProcessesByName("funnet-gwanak-agent"))
         {
-            try { process.Kill(); process.WaitForExit(4000); } catch { }
+            try { if (!process.HasExited) process.Kill(true); process.WaitForExit(5000); } catch { }
             finally { process.Dispose(); }
+        }
+        for (var attempt = 0; attempt < 5 && Process.GetProcessesByName("funnet-gwanak-agent").Length > 0; attempt++)
+        {
+            foreach (var process in Process.GetProcessesByName("funnet-gwanak-agent")) { try { process.Kill(true); process.WaitForExit(1000); } catch { } finally { process.Dispose(); } }
+            Thread.Sleep(250);
         }
     }
 
