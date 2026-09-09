@@ -59,6 +59,15 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         finally { foreach (var process in player) process.Dispose(); }
         for (var attempt = 0; attempt < 8 && GetIvisionProcesses().Length > 0; attempt++) System.Threading.Thread.Sleep(500);
         var remaining = GetIvisionProcesses();
+        foreach (var process in remaining)
+        {
+            try { process.Kill(true); } catch { }
+            finally { process.Dispose(); }
+        }
+        var launcher = FindIvisionLauncher();
+        if (launcher is not null) { try { launcher.Kill(true); } catch { } finally { launcher.Dispose(); } }
+        System.Threading.Thread.Sleep(500);
+        remaining = GetIvisionProcesses();
         try { if (remaining.Length > 0) throw new InvalidOperationException("i-vision 프로세스가 종료되지 않았습니다. PlayAgent 감시 기능을 먼저 중지해야 합니다."); }
         finally { foreach (var process in remaining) process.Dispose(); }
         return new { stopped = count, running = false };
@@ -81,6 +90,27 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         => System.Diagnostics.Process.GetProcessesByName("i-Vision.PlayAgent")
             .Concat(System.Diagnostics.Process.GetProcessesByName("i-Vision.Player"))
             .ToArray();
+
+    private static System.Diagnostics.Process? FindIvisionLauncher()
+    {
+        foreach (var name in new[] { "i-Vision.PlayAgent", "i-Vision.Player" })
+        foreach (var child in System.Diagnostics.Process.GetProcessesByName(name))
+        {
+            try
+            {
+                using var query = new System.Management.ManagementObjectSearcher($"SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = {child.Id}");
+                var parentId = query.Get().Cast<System.Management.ManagementObject>().FirstOrDefault()?["ParentProcessId"];
+                if (parentId is null) continue;
+                var parent = System.Diagnostics.Process.GetProcessById(Convert.ToInt32(parentId));
+                var path = parent.MainModule?.FileName;
+                if (!string.IsNullOrWhiteSpace(path) && path.StartsWith(@"C:\i-Vision Player\", StringComparison.OrdinalIgnoreCase)) return parent;
+                parent.Dispose();
+            }
+            catch { }
+            finally { child.Dispose(); }
+        }
+        return null;
+    }
 
     private async Task<object> ProbeAsync(CancellationToken cancellationToken)
     {
