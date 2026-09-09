@@ -260,8 +260,6 @@ function seedAdmin() {
     const timestamp = now();
     db.prepare("INSERT INTO users (username, password_hash, role, active, created_at, updated_at) VALUES (?, ?, 'admin', 1, ?, ?)")
       .run(adminUser, hashPassword(adminPassword), timestamp, timestamp);
-  } else if (!verifyPassword(adminPassword, existing.password_hash)) {
-    db.prepare("UPDATE users SET password_hash = ?, active = 1, updated_at = ? WHERE id = ?").run(hashPassword(adminPassword), now(), existing.id);
   }
 }
 
