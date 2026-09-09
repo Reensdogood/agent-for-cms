@@ -617,7 +617,7 @@ async function handleApi(req, res, url) {
     const regionId = role === "region_manager" ? String(body.regionId || "").trim() : null;
     if (!/^[A-Za-z0-9._@-]{3,60}$/.test(username)) return json(res, 400, { error: "아이디는 영문, 숫자, ., _, @, - 조합 3자 이상이어야 합니다." });
     if (password.length < 10) return json(res, 400, { error: "비밀번호는 10자 이상이어야 합니다." });
-    if (password !== passwordConfirm) return json(res, 400, { error: "비밀번호 확인이 일치하지 않습니다." });
+    if (passwordConfirm && password !== passwordConfirm) return json(res, 400, { error: "비밀번호 확인이 일치하지 않습니다." });
     if (regionId && !db.prepare("SELECT id FROM regions WHERE id = ?").get(regionId)) return json(res, 400, { error: "담당 지역을 선택해 주세요." });
     if (db.prepare("SELECT id FROM users WHERE username = ?").get(username)) return json(res, 409, { error: "이미 사용 중인 아이디입니다." });
     const timestamp = now();
@@ -653,7 +653,7 @@ async function handleApi(req, res, url) {
     if (duplicate) return json(res, 409, { error: "이미 사용 중인 아이디입니다." });
     if (!active && current.username === session.username) return json(res, 400, { error: "현재 로그인한 계정은 비활성화할 수 없습니다." });
     if (password) {
-      if (password !== passwordConfirm) return json(res, 400, { error: "비밀번호 확인이 일치하지 않습니다." });
+      if (passwordConfirm && password !== passwordConfirm) return json(res, 400, { error: "비밀번호 확인이 일치하지 않습니다." });
       if (password.length < 10) return json(res, 400, { error: "비밀번호는 10자 이상이어야 합니다." });
       db.prepare("UPDATE users SET username = ?, password_hash = ?, role = ?, region_id = ?, active = ?, updated_at = ? WHERE id = ?")
         .run(username, hashPassword(password), role, regionId, active, now(), current.id);

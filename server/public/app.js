@@ -470,6 +470,7 @@ $("#userForm").addEventListener("submit", async (event) => {
   const body = {
     username: $("#userName").value,
     password,
+    passwordConfirm,
     role: $("#userRole").value,
     regionId: $("#userRole").value === "region_manager" ? $("#userRegion").value : null,
     active: $("#userActive").checked,
