@@ -210,6 +210,7 @@ const roles = {
   admin: { label: "전체 시스템", rank: 3 },
   operator: { label: "운영", rank: 2 },
   region_manager: { label: "지역 관리자", rank: 1 },
+  system_manager: { label: "시스템 담당자", rank: 2 },
 };
 
 function normalizeRole(value) {
@@ -221,7 +222,7 @@ function canManageAll(session) {
 }
 
 function canOperate(session) {
-  return ["admin", "operator", "region_manager"].includes(session?.role);
+  return ["admin", "operator", "region_manager", "system_manager"].includes(session?.role);
 }
 
 function sameRegionOnly(session) {
@@ -749,7 +750,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/releases/upload") {
     const session = requireAdmin(req, res, true);
     if (!session) return;
-    if (!assertRole(session, res, ["admin", "operator"])) return;
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const fileName = path.basename(decodeURIComponent(String(req.headers["x-file-name"] || "")));
     const match = /^(UME-release|Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-([0-9]+(?:\.[0-9]+){1,3})(?:\+[^\\/]+)?\.exe$/i.exec(fileName);
     if (!match) return json(res, 400, { error: "파일명은 UME-release-{버전}.exe 또는 Funnet.Gwanak.Agent-{버전}.exe 형식이어야 합니다." });
@@ -787,7 +788,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && releaseDistributeMatch) {
     const session = requireAdmin(req, res, true);
     if (!session) return;
-    if (!assertRole(session, res, ["admin", "operator"])) return;
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseDistributeMatch[1]);
     if (!release) return json(res, 404, { error: "배포 파일을 찾을 수 없습니다." });
     const body = await readJson(req);
@@ -817,7 +818,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/schedules") {
     const session = requireAdmin(req, res, true);
     if (!session) return;
-    if (!assertRole(session, res, ["admin", "operator"])) return;
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const body = await readJson(req);
     const schedule = validateSchedule(body);
     const id = crypto.randomUUID();
@@ -832,7 +833,7 @@ async function handleApi(req, res, url) {
   if (req.method === "PUT" && scheduleMatch) {
     const session = requireAdmin(req, res, true);
     if (!session) return;
-    if (!assertRole(session, res, ["admin", "operator"])) return;
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const current = db.prepare("SELECT * FROM schedules WHERE id = ?").get(scheduleMatch[1]);
     if (!current) return json(res, 404, { error: "스케줄을 찾을 수 없습니다." });
     const schedule = validateSchedule(await readJson(req));
@@ -845,7 +846,7 @@ async function handleApi(req, res, url) {
   if (req.method === "DELETE" && scheduleMatch) {
     const session = requireAdmin(req, res, true);
     if (!session) return;
-    if (!assertRole(session, res, ["admin", "operator"])) return;
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const current = db.prepare("SELECT * FROM schedules WHERE id = ?").get(scheduleMatch[1]);
     if (!current) return json(res, 404, { error: "스케줄을 찾을 수 없습니다." });
     db.prepare("DELETE FROM schedules WHERE id = ?").run(current.id);
@@ -955,7 +956,7 @@ async function handleApi(req, res, url) {
   if (req.method === "DELETE" && deviceMatch) {
     const session = requireAdmin(req, res, true);
     if (!session) return;
-    if (!assertRole(session, res, ["admin", "operator"])) return;
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const current = db.prepare("SELECT * FROM devices WHERE id = ?").get(deviceMatch[1]);
     if (!current) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
     db.prepare("DELETE FROM commands WHERE device_id = ?").run(current.id);

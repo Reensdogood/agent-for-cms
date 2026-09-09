@@ -288,6 +288,7 @@ async function loadUsers() {
 }
 
 function openUser(user = null) {
+  if (!$("#userRole option[value=system_manager]")) $("#userRole").insertAdjacentHTML("beforeend", '<option value="system_manager">시스템 담당자</option>');
   if (!$("#userPasswordConfirm")) { const label = document.createElement("label"); label.innerHTML = '비밀번호 확인<input id="userPasswordConfirm" type="password" minlength="10" autocomplete="new-password" placeholder="비밀번호를 다시 입력하세요">'; $("#userPassword").closest("label").after(label); }
   $("#userDialogTitle").textContent = user ? "사용자 정보 수정" : "사용자 추가";
   $("#userId").value = user?.id || "";
@@ -388,7 +389,8 @@ async function loadReleases() { releases = (await api("/api/releases")).releases
 
 function showPage(name) {
   if (name === "users" && currentSession?.role !== "admin") return;
-  if (name === "system" && currentSession?.role !== "admin") return;
+  const nav = $(`.nav-item[data-view="${name}"]`);
+  if (nav?.dataset.roles && !nav.dataset.roles.split(",").includes(currentSession?.role)) return;
   $$(".page").forEach((page) => { page.hidden = page.dataset.page !== name; page.classList.toggle("active", page.dataset.page === name); });
   $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
   $("#pageEyebrow").textContent = pageMeta[name][0];
@@ -417,6 +419,7 @@ async function showApp() {
   csrfToken = session.csrfToken;
   $("#sessionUser").textContent = `${session.username} · ${session.roleLabel || roleLabel(session.role)}`;
   $$(".admin-only").forEach((item) => { item.hidden = session.role !== "admin"; });
+  $$(".nav-item[data-roles]").forEach((item) => { item.hidden = !item.dataset.roles.split(",").includes(session.role); });
   loginView.hidden = true;
   appView.hidden = false;
   await Promise.all([loadDevices(), loadEnrollmentInfo()]);
