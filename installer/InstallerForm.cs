@@ -274,8 +274,8 @@ internal sealed class InstallerForm : Form
             StopAgent();
             var executable = Path.Combine(_installDirectory, "funnet-gwanak-agent.exe");
             var settings = Path.Combine(_installDirectory, "agent-settings.json");
-            if (File.Exists(executable)) File.Delete(executable); if (File.Exists(settings)) File.Delete(settings);
-            ShowStatus("Agent 실행파일과 자동실행 등록을 제거했습니다.");
+            ScheduleDelete(executable, settings);
+            ShowStatus("Agent 종료 및 자동실행 등록을 해제했습니다. 파일은 잠금 해제 후 삭제됩니다.");
             BeginInvoke(Close);
         }
         catch (Exception exception) { ShowStatus(exception.Message, true); }
@@ -293,6 +293,12 @@ internal sealed class InstallerForm : Form
             foreach (var process in Process.GetProcessesByName("funnet-gwanak-agent")) { try { process.Kill(true); process.WaitForExit(1000); } catch { } finally { process.Dispose(); } }
             Thread.Sleep(250);
         }
+    }
+
+    private static void ScheduleDelete(string executable, string settings)
+    {
+        var script = $"timeout /t 2 /nobreak >nul & del /f /q \"{executable}\" \"{settings}\"";
+        Process.Start(new ProcessStartInfo("cmd.exe", $"/c {script}") { CreateNoWindow = true, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden });
     }
 
     private void ShowStatus(string message, bool error = false) { _status.Text = message; _status.ForeColor = error ? Color.Firebrick : Color.DimGray; }

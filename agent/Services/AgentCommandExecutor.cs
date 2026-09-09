@@ -53,12 +53,17 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
 
     private static object StopIvision()
     {
-        var processes = GetIvisionProcesses();
         var count = 0;
-        try { foreach (var process in processes) { process.CloseMainWindow(); if (!process.WaitForExit(3000)) process.Kill(true); count++; } }
-        finally { foreach (var process in processes) process.Dispose(); }
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var processes = GetIvisionProcesses();
+            try { foreach (var process in processes) { process.CloseMainWindow(); try { if (!process.WaitForExit(800)) process.Kill(true); } catch { } count++; } }
+            finally { foreach (var process in processes) process.Dispose(); }
+            if (GetIvisionProcesses().Length == 0) break;
+            System.Threading.Thread.Sleep(500);
+        }
         var remaining = GetIvisionProcesses();
-        try { if (remaining.Length > 0) throw new InvalidOperationException("i-vision 프로세스가 종료되지 않았습니다."); }
+        try { if (remaining.Length > 0) throw new InvalidOperationException("i-vision 프로세스가 종료되지 않았습니다. PlayAgent 감시 기능을 먼저 중지해야 합니다."); }
         finally { foreach (var process in remaining) process.Dispose(); }
         return new { stopped = count, running = false };
     }
