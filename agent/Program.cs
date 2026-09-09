@@ -34,12 +34,15 @@ internal static class Program
         if (args.Any(value => string.Equals(value, "--diagnose-ivision", StringComparison.OrdinalIgnoreCase)))
         {
             var names = new[] { "i-Vision.Player", "i-Vision.PlayAgent" };
-            var rows = names.SelectMany(name => Process.GetProcessesByName(name).Select(process =>
+            var rows = new List<Dictionary<string, object?>>();
+            foreach (var name in names) foreach (var process in Process.GetProcessesByName(name))
             {
-                try { return new { name = process.ProcessName, pid = process.Id, path = process.MainModule?.FileName, hasMainWindow = process.MainWindowHandle != IntPtr.Zero, canClose = !process.HasExited }; }
-                catch (Exception error) { return new { name = process.ProcessName, pid = process.Id, path = (string?)null, hasMainWindow = false, canClose = false, error = error.Message }; }
+                var row = new Dictionary<string, object?> { ["name"] = process.ProcessName, ["pid"] = process.Id };
+                try { row["path"] = process.MainModule?.FileName; row["hasMainWindow"] = process.MainWindowHandle != IntPtr.Zero; row["canClose"] = !process.HasExited; }
+                catch (Exception error) { row["error"] = error.Message; }
                 finally { process.Dispose(); }
-            })).ToArray();
+                rows.Add(row);
+            }
             Console.WriteLine(JsonSerializer.Serialize(new { timestamp = DateTimeOffset.Now, processes = rows }, JsonDefaults.Indented));
             return;
         }
