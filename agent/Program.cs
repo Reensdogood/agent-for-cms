@@ -43,7 +43,11 @@ internal static class Program
                 finally { process.Dispose(); }
                 rows.Add(row);
             }
-            Console.WriteLine(JsonSerializer.Serialize(new { timestamp = DateTimeOffset.Now, processes = rows }, JsonDefaults.Indented));
+            var report = JsonSerializer.Serialize(new { timestamp = DateTimeOffset.Now, processes = rows }, JsonDefaults.Indented);
+            var reportPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Funnet", "funnet-gwanak-agent", "ivision-diagnostic.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(reportPath)!);
+            File.WriteAllText(reportPath, report);
+            MessageBox.Show($"i-vision 진단이 완료되었습니다.\n\n결과 파일:\n{reportPath}", "Funnet Agent 진단", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
