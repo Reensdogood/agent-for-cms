@@ -388,6 +388,7 @@ async function loadReleases() { releases = (await api("/api/releases")).releases
 
 function showPage(name) {
   if (name === "users" && currentSession?.role !== "admin") return;
+  if (name === "system" && currentSession?.role !== "admin") return;
   $$(".page").forEach((page) => { page.hidden = page.dataset.page !== name; page.classList.toggle("active", page.dataset.page === name); });
   $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
   $("#pageEyebrow").textContent = pageMeta[name][0];
