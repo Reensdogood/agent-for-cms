@@ -30,7 +30,7 @@ internal sealed class HealthCollector
             Environment.OSVersion.VersionString,
             DateTimeOffset.Now,
             GetForegroundProcessName(),
-            IsProcessRunning("i-Vision.Player"),
+            IsProcessRunning("i-Vision.Player") || IsProcessRunning("i-Vision.PlayAgent"),
             versions.FirstOrDefault(),
             versions)
         {

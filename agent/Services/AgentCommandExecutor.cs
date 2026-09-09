@@ -53,11 +53,11 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
 
     private static object StopIvision()
     {
-        var processes = System.Diagnostics.Process.GetProcessesByName("i-Vision.Player");
+        var processes = GetIvisionProcesses();
         var count = 0;
         try { foreach (var process in processes) { process.CloseMainWindow(); if (!process.WaitForExit(3000)) process.Kill(true); count++; } }
         finally { foreach (var process in processes) process.Dispose(); }
-        var remaining = System.Diagnostics.Process.GetProcessesByName("i-Vision.Player");
+        var remaining = GetIvisionProcesses();
         try { if (remaining.Length > 0) throw new InvalidOperationException("i-vision 프로세스가 종료되지 않았습니다."); }
         finally { foreach (var process in remaining) process.Dispose(); }
         return new { stopped = count, running = false };
@@ -66,7 +66,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     private static object RestartIvision()
     {
         string? path = null;
-        var processes = System.Diagnostics.Process.GetProcessesByName("i-Vision.Player");
+        var processes = GetIvisionProcesses();
         try { foreach (var process in processes) { try { path ??= process.MainModule?.FileName; } catch { } process.CloseMainWindow(); if (!process.WaitForExit(3000)) process.Kill(true); } }
         finally { foreach (var process in processes) process.Dispose(); }
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
@@ -74,6 +74,11 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
         return new { restarted = true, process = "i-Vision.Player" };
     }
+
+    private static System.Diagnostics.Process[] GetIvisionProcesses()
+        => System.Diagnostics.Process.GetProcessesByName("i-Vision.Player")
+            .Concat(System.Diagnostics.Process.GetProcessesByName("i-Vision.PlayAgent"))
+            .ToArray();
 
     private async Task<object> ProbeAsync(CancellationToken cancellationToken)
     {
