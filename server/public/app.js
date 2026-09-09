@@ -6,6 +6,7 @@ let csrfToken = "";
 let devices = [];
 let schedules = [];
 let releases = [];
+let releaseFilter = "all";
 let users = [];
 let currentSession = null;
 let regionInfo = { serverBaseUrl: "", regions: [] };
@@ -275,10 +276,12 @@ async function loadUsers() {
 }
 
 function openUser(user = null) {
+  if (!$("#userPasswordConfirm")) { const label = document.createElement("label"); label.innerHTML = '비밀번호 확인<input id="userPasswordConfirm" type="password" minlength="10" autocomplete="new-password" placeholder="비밀번호를 다시 입력하세요">'; $("#userPassword").closest("label").after(label); }
   $("#userDialogTitle").textContent = user ? "사용자 정보 수정" : "사용자 추가";
   $("#userId").value = user?.id || "";
   $("#userName").value = user?.username || "";
   $("#userPassword").value = "";
+  $("#userPasswordConfirm").value = "";
   $("#userPassword").required = !user;
   $("#userRole").value = user?.role || "operator";
   $("#userActive").checked = user?.active ?? true;
@@ -347,8 +350,9 @@ function openSchedule(schedule = null) {
 
 function renderReleases() {
   const list = $("#releaseList");
-  if (!releases.length) { list.replaceChildren(textElement("section", "panel empty-card", "등록된 UME 설치파일이 없습니다.")); return; }
-  list.replaceChildren(...releases.map((release) => {
+  const visibleReleases = releases.filter((release) => releaseFilter === "all" || (releaseFilter === "agent" ? /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.fileName) : !/^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.fileName)));
+  if (!visibleReleases.length) { list.replaceChildren(textElement("section", "panel empty-card", "등록된 업데이트 파일이 없습니다.")); return; }
+  list.replaceChildren(...visibleReleases.map((release) => {
     const card = document.createElement("article");
     card.className = "release-card panel";
     const icon = textElement("div", "package-icon", "UME");
@@ -460,9 +464,12 @@ $("#userForm").addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();
   const id = $("#userId").value;
+  const password = $("#userPassword").value;
+  const passwordConfirm = $("#userPasswordConfirm")?.value || "";
+  if (password && password !== passwordConfirm) { toast("비밀번호가 일치하지 않습니다.", "error"); return; }
   const body = {
     username: $("#userName").value,
-    password: $("#userPassword").value,
+    password,
     role: $("#userRole").value,
     regionId: $("#userRole").value === "region_manager" ? $("#userRegion").value : null,
     active: $("#userActive").checked,
@@ -514,6 +521,11 @@ const integrations = {
 $$('[data-tool]').forEach((button) => button.addEventListener("click", () => {
   $$('[data-tool]').forEach((item) => item.classList.toggle("active", item === button));
   const tool = integrations[button.dataset.tool]; $("#integrationTitle").textContent = tool.title; $("#integrationUrl").textContent = tool.label; $("#integrationFrame").src = tool.url; $("#integrationFallback").href = tool.url;
+}));
+$$('[data-release-filter]').forEach((button) => button.addEventListener("click", () => {
+  releaseFilter = button.dataset.releaseFilter;
+  $$('[data-release-filter]').forEach((item) => item.classList.toggle("active", item === button));
+  renderReleases();
 }));
 
 showApp().catch(() => { loginView.hidden = false; appView.hidden = true; });

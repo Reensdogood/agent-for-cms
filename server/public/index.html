@@ -31,8 +31,8 @@
         <nav aria-label="주 메뉴">
           <button class="nav-item active" data-view="dashboard"><span>⌂</span>대시보드</button>
           <button class="nav-item" data-view="devices"><span>▣</span>장비 관리</button>
-          <button class="nav-item" data-view="schedules"><span>◷</span>실행 스케줄</button>
-          <button class="nav-item" data-view="releases"><span>⇩</span>UME 배포</button>
+          <button class="nav-item" data-view="schedules"><span>◷</span>스케줄 실행</button>
+          <button class="nav-item" data-view="releases"><span>⇩</span>업데이트 배포</button>
           <button class="nav-item" data-view="integrations"><span>↗</span>외부 관리</button>
           <button class="nav-item admin-only" data-view="users"><span>◉</span>사용자 관리</button>
         </nav>
@@ -78,13 +78,14 @@
         </section>
 
         <section class="page" data-page="schedules" hidden>
-          <div class="page-actions"><div><h2>UME 실행 스케줄</h2><p>대한민국 시간 기준으로 승인된 모든 장비에 실행 명령을 보냅니다.</p></div><button id="addScheduleButton">스케줄 추가</button></div>
+          <div class="page-actions"><div><h2>화상회의 스케줄 실행</h2><p>대한민국 시간 기준으로 승인된 모든 장비에 화상회의 실행 명령을 보냅니다.</p></div><button id="addScheduleButton">스케줄 추가</button></div>
           <section class="panel bulk-display-panel"><div><p class="eyebrow">ONLINE DISPLAYS</p><h3>전체 장비 TV 제어</h3><p>현재 온라인인 승인 장비에 즉시 명령을 전송합니다.</p></div><div id="bulkDisplayActions" class="bulk-display-actions"><button class="secondary" data-bulk-display="power" data-value="on">전원 ON</button><button class="secondary" data-bulk-display="power" data-value="off">전원 OFF</button><button class="secondary" data-bulk-display="input" data-value="HDMI1">HDMI1</button><button class="secondary" data-bulk-display="input" data-value="HDMI2">HDMI2</button></div></section>
           <div id="scheduleList" class="card-grid"></div>
         </section>
 
         <section class="page" data-page="releases" hidden>
-          <div class="page-actions"><div><h2>UME 설치파일 배포</h2><p>Agent는 설치하지 않고 안전하게 다운로드·검증·보관까지만 수행합니다.</p></div></div>
+          <div class="page-actions"><div><h2>업데이트 배포</h2><p>UME와 Agent 업데이트 파일을 등록하고 승인된 장비에 배포합니다.</p></div></div>
+          <div class="segment"><button class="active" data-release-filter="all">전체</button><button data-release-filter="ume">UME 배포</button><button data-release-filter="agent">Agent 업데이트</button></div>
           <section class="panel upload-panel"><div><h3>새 버전 등록</h3><p><code>UME-release-버전.exe</code> 또는 <code>Funnet.Gwanak.Agent-버전.exe</code> 파일을 선택하세요.</p></div><label class="file-button">파일 선택<input id="releaseFile" type="file" accept=".exe"></label><button id="uploadReleaseButton" disabled>업로드</button><progress id="uploadProgress" max="100" value="0" hidden></progress></section>
           <div id="releaseList" class="release-list"></div>
         </section>
