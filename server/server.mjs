@@ -1010,6 +1010,21 @@ async function handleApi(req, res, url) {
     return json(res, 202, { commandId, queued: 1, status: "pending" });
   }
 
+  const ivisionMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/ivision\/(stop|restart)$/i);
+  if (req.method === "POST" && ivisionMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const device = db.prepare("SELECT id, region_id, approved FROM devices WHERE id = ?").get(ivisionMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 실행할 수 있습니다." });
+    if (!device.approved) return json(res, 400, { error: "승인된 장비만 실행할 수 있습니다." });
+    const commandId = crypto.randomUUID(); const type = `ivision.${ivisionMatch[2].toLowerCase()}`;
+    db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, '{}', ?)").run(commandId, device.id, type, now());
+    audit(session.username, type, device.id, { commandId });
+    return json(res, 202, { commandId, status: "pending" });
+  }
+
   json(res, 404, { error: "요청한 API를 찾을 수 없습니다." });
 }
 

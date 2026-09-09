@@ -174,6 +174,10 @@ function deviceRow(device) {
     document.body.append(dialog); dialog.addEventListener("close", () => dialog.remove(), { once: true }); dialog.showModal();
   });
   actions.append(tv);
+  const ivisionStop = textElement("button", "small secondary", "i-vision 종료");
+  const ivisionRestart = textElement("button", "small secondary", "i-vision 재실행");
+  ivisionStop.disabled = ivisionRestart.disabled = !device.approved;
+  for (const [button, action, label] of [[ivisionStop, "stop", "종료"], [ivisionRestart, "restart", "재실행"]]) button.addEventListener("click", async () => { if (!await confirmAction(`${device.displayName}의 i-vision을 ${label}할까요?`, "현재 실행 중인 i-Vision.Player 프로세스 기준으로 처리합니다.", label)) return; button.disabled = true; try { await api(`/api/devices/${device.id}/ivision/${action}`, { method: "POST", body: "{}" }); toast(`i-vision ${label} 명령을 보냈습니다.`); setTimeout(loadDevices, 1800); } catch (error) { toast(error.message, "error"); } finally { button.disabled = !device.approved; } });
   const edit = textElement("button", "small secondary", "수정");
   edit.addEventListener("click", () => {
     $("#renameDeviceId").value = device.id;
@@ -188,7 +192,7 @@ function deviceRow(device) {
     catch (error) { toast(error.message, "error"); }
     finally { remove.disabled = false; }
   });
-  actions.append(probe, runUme, edit, remove);
+  actions.append(probe, runUme, ivisionStop, ivisionRestart, edit, remove);
   row.append(actions);
   return row;
 }

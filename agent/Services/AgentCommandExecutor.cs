@@ -22,6 +22,8 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                     "health.probe" => await ProbeAsync(cancellationToken),
                     "ume.activate" => await _umeController.ActivateAsync(cancellationToken),
                     "ume.hide" => _umeController.HideAndRestoreDid(),
+                    "ivision.stop" => StopIvision(),
+                    "ivision.restart" => RestartIvision(),
                     "ume.package.download" => await DownloadAsync(command, cancellationToken),
                     "agent.package.download" => await DownloadAgentAsync(command, cancellationToken),
                     "display.power" => await DisplayPowerAsync(command, cancellationToken),
@@ -48,6 +50,27 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     { await using var client = CreateDisplayClient(); var value = command.Payload.GetProperty("value").GetInt32(); await client.SetVolumeAsync(value, ct); return new { volume = value }; }
     private SamsungMdcClient CreateDisplayClient()
     { if (!_settings.Display.Enabled || string.IsNullOrWhiteSpace(_settings.Display.Port)) throw new DisplayControlException(DisplayErrorCode.PortNotFound, "Samsung display is not enabled or port is not configured."); var transport = new WindowsSerialTransportFactory().Create(SerialPortConfiguration.ForSamsungMdc(_settings.Display.Port)); return new SamsungMdcClient(transport); }
+
+    private static object StopIvision()
+    {
+        var processes = System.Diagnostics.Process.GetProcessesByName("i-Vision.Player");
+        var count = 0;
+        try { foreach (var process in processes) { process.CloseMainWindow(); count++; } }
+        finally { foreach (var process in processes) process.Dispose(); }
+        return new { stopped = count };
+    }
+
+    private static object RestartIvision()
+    {
+        string? path = null;
+        var processes = System.Diagnostics.Process.GetProcessesByName("i-Vision.Player");
+        try { foreach (var process in processes) { try { path ??= process.MainModule?.FileName; } catch { } process.CloseMainWindow(); } }
+        finally { foreach (var process in processes) process.Dispose(); }
+        if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
+        System.Threading.Thread.Sleep(1000);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        return new { restarted = true, process = "i-Vision.Player" };
+    }
 
     private async Task<object> ProbeAsync(CancellationToken cancellationToken)
     {
