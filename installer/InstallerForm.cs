@@ -288,7 +288,7 @@ internal sealed class InstallerForm : Form
         // 기본 종료 경로도 사용한다. setup 자신은 이름이 달라 대상에 포함되지 않는다.
         try
         {
-            using var taskkill = Process.Start(new ProcessStartInfo("taskkill", "/F /T /IM funnet-gwanak-agent.exe")
+            using var taskkill = Process.Start(new ProcessStartInfo("taskkill", "/F /IM funnet-gwanak-agent.exe")
             { CreateNoWindow = true, UseShellExecute = false });
             taskkill?.WaitForExit(5000);
         }
@@ -305,7 +305,9 @@ internal sealed class InstallerForm : Form
     {
         foreach (var process in Process.GetProcessesByName("funnet-gwanak-agent"))
         {
-            try { if (!process.HasExited) { process.Kill(true); process.WaitForExit(1500); } }
+            // 설정창/제거창이 Agent의 자식으로 실행될 수 있으므로 Kill(true)로
+            // 자식 트리까지 종료하지 않는다. setup 자신이 살아 있어 후속 재시작/삭제를 수행해야 한다.
+            try { if (!process.HasExited) { process.Kill(); process.WaitForExit(1500); } }
             catch { }
             finally { process.Dispose(); }
         }
