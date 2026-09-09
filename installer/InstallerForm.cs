@@ -260,7 +260,7 @@ internal sealed class InstallerForm : Form
             StopAgent();
             var executable = Path.Combine(_installDirectory, "funnet-gwanak-agent.exe");
             if (File.Exists(executable)) Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = _installDirectory });
-            BeginInvoke(Close);
+            BeginInvoke((Action)(() => Application.Exit()));
         }
         catch (Exception exception) { ShowStatus(exception.Message, true); }
     }
