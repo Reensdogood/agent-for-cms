@@ -283,15 +283,31 @@ internal sealed class InstallerForm : Form
 
     private static void StopAgent()
     {
+        KillAgentProcesses();
+        // Kill(true)가 권한/자식 트리 상태로 실패하는 경우를 대비해 Windows
+        // 기본 종료 경로도 사용한다. setup 자신은 이름이 달라 대상에 포함되지 않는다.
+        try
+        {
+            using var taskkill = Process.Start(new ProcessStartInfo("taskkill", "/F /T /IM funnet-gwanak-agent.exe")
+            { CreateNoWindow = true, UseShellExecute = false });
+            taskkill?.WaitForExit(5000);
+        }
+        catch { }
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            KillAgentProcesses();
+            if (Process.GetProcessesByName("funnet-gwanak-agent").Length == 0) return;
+            Thread.Sleep(300);
+        }
+    }
+
+    private static void KillAgentProcesses()
+    {
         foreach (var process in Process.GetProcessesByName("funnet-gwanak-agent"))
         {
-            try { if (!process.HasExited) process.Kill(true); process.WaitForExit(5000); } catch { }
+            try { if (!process.HasExited) { process.Kill(true); process.WaitForExit(1500); } }
+            catch { }
             finally { process.Dispose(); }
-        }
-        for (var attempt = 0; attempt < 5 && Process.GetProcessesByName("funnet-gwanak-agent").Length > 0; attempt++)
-        {
-            foreach (var process in Process.GetProcessesByName("funnet-gwanak-agent")) { try { process.Kill(true); process.WaitForExit(1000); } catch { } finally { process.Dispose(); } }
-            Thread.Sleep(250);
         }
     }
 

@@ -53,24 +53,26 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
 
     private static object StopIvision()
     {
-        var count = 0;
-        var player = System.Diagnostics.Process.GetProcessesByName("i-Vision.Player");
-        try { foreach (var process in player) { process.CloseMainWindow(); count++; } }
-        finally { foreach (var process in player) process.Dispose(); }
-        for (var attempt = 0; attempt < 8 && GetIvisionProcesses().Length > 0; attempt++) System.Threading.Thread.Sleep(500);
-        var remaining = GetIvisionProcesses();
-        foreach (var process in remaining)
+        // PlayAgent가 Player를 감시하므로 자식만 종료하면 즉시 다시 생성된다.
+        // 시작 시점에 부모 체인을 캡처하고, 자식 -> 감시자 -> 런처 순서로 닫는다.
+        var tree = CaptureIvisionTree();
+        var stopped = 0;
+        foreach (var process in tree.Where(p => p.Name.Equals("i-Vision.Player", StringComparison.OrdinalIgnoreCase)))
+            stopped += CloseOrKill(process.Process);
+        WaitForIvisionExit(1500);
+        foreach (var process in tree.Where(p => p.Name.Equals("i-Vision.PlayAgent", StringComparison.OrdinalIgnoreCase)))
+            stopped += KillProcess(process.Process);
+        foreach (var process in tree.Where(p => p.IsIvisionFolder && !p.Name.Equals("i-Vision.Player", StringComparison.OrdinalIgnoreCase) && !p.Name.Equals("i-Vision.PlayAgent", StringComparison.OrdinalIgnoreCase)))
+            stopped += KillProcess(process.Process);
+        for (var attempt = 0; attempt < 6 && GetIvisionProcesses().Length > 0; attempt++)
         {
-            try { process.Kill(true); } catch { }
-            finally { process.Dispose(); }
+            foreach (var process in GetIvisionProcesses()) { stopped += KillProcess(process); }
+            System.Threading.Thread.Sleep(350);
         }
-        var launcher = FindIvisionLauncher();
-        if (launcher is not null) { try { launcher.Kill(true); } catch { } finally { launcher.Dispose(); } }
-        System.Threading.Thread.Sleep(500);
-        remaining = GetIvisionProcesses();
-        try { if (remaining.Length > 0) throw new InvalidOperationException("i-vision 프로세스가 종료되지 않았습니다. PlayAgent 감시 기능을 먼저 중지해야 합니다."); }
+        var remaining = GetIvisionProcesses();
+        try { if (remaining.Length > 0) throw new InvalidOperationException("i-vision 감시 프로세스가 종료되지 않았습니다. 런처가 다시 실행하지 않도록 PlayAgent와 상위 런처를 함께 종료해야 합니다."); }
         finally { foreach (var process in remaining) process.Dispose(); }
-        return new { stopped = count, running = false };
+        return new { stopped, running = false };
     }
 
     private static object RestartIvision()
@@ -82,35 +84,71 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         StopIvision();
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
         return new { restarted = true, process = "i-Vision.Player" };
+    }
+
+    private sealed record IvisionProcess(System.Diagnostics.Process Process, string Name, string? Path, bool IsIvisionFolder);
+
+    private static List<IvisionProcess> CaptureIvisionTree()
+    {
+        var result = new Dictionary<int, IvisionProcess>();
+        foreach (var process in GetIvisionProcesses())
+        {
+            try { AddWithParents(process, result); }
+            catch { process.Dispose(); }
+        }
+        return result.Values.ToList();
+    }
+
+    private static void AddWithParents(System.Diagnostics.Process process, Dictionary<int, IvisionProcess> result)
+    {
+        if (result.ContainsKey(process.Id)) { process.Dispose(); return; }
+        string? path = null;
+        try { path = process.MainModule?.FileName; } catch { }
+        result[process.Id] = new IvisionProcess(process, process.ProcessName, path, path?.StartsWith(@"C:\i-Vision Player\", StringComparison.OrdinalIgnoreCase) == true);
+        try
+        {
+            using var query = new System.Management.ManagementObjectSearcher($"SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = {process.Id}");
+            var parentValue = query.Get().Cast<System.Management.ManagementObject>().FirstOrDefault()?["ParentProcessId"];
+            if (parentValue is null) return;
+            var parent = System.Diagnostics.Process.GetProcessById(Convert.ToInt32(parentValue));
+            if (parent.Id != process.Id) AddWithParents(parent, result);
+        }
+        catch { }
+    }
+
+    private static int CloseOrKill(System.Diagnostics.Process process)
+    {
+        try { if (!process.HasExited) process.CloseMainWindow(); } catch { }
+        try { if (!process.WaitForExit(800)) return KillProcess(process); return 1; }
+        catch { return KillProcess(process); }
+    }
+
+    private static int KillProcess(System.Diagnostics.Process process)
+    {
+        try { if (!process.HasExited) { process.Kill(true); process.WaitForExit(1200); return 1; } return 0; }
+        catch { return 0; }
+        finally { process.Dispose(); }
+    }
+
+    private static void WaitForIvisionExit(int milliseconds)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(milliseconds);
+        while (DateTime.UtcNow < until)
+        {
+            var processes = GetIvisionProcesses();
+            var running = processes.Length > 0;
+            foreach (var process in processes) process.Dispose();
+            if (!running) return;
+            System.Threading.Thread.Sleep(150);
+        }
     }
 
     private static System.Diagnostics.Process[] GetIvisionProcesses()
         => System.Diagnostics.Process.GetProcessesByName("i-Vision.PlayAgent")
             .Concat(System.Diagnostics.Process.GetProcessesByName("i-Vision.Player"))
             .ToArray();
-
-    private static System.Diagnostics.Process? FindIvisionLauncher()
-    {
-        foreach (var name in new[] { "i-Vision.PlayAgent", "i-Vision.Player" })
-        foreach (var child in System.Diagnostics.Process.GetProcessesByName(name))
-        {
-            try
-            {
-                using var query = new System.Management.ManagementObjectSearcher($"SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = {child.Id}");
-                var parentId = query.Get().Cast<System.Management.ManagementObject>().FirstOrDefault()?["ParentProcessId"];
-                if (parentId is null) continue;
-                var parent = System.Diagnostics.Process.GetProcessById(Convert.ToInt32(parentId));
-                var path = parent.MainModule?.FileName;
-                if (!string.IsNullOrWhiteSpace(path) && path.StartsWith(@"C:\i-Vision Player\", StringComparison.OrdinalIgnoreCase)) return parent;
-                parent.Dispose();
-            }
-            catch { }
-            finally { child.Dispose(); }
-        }
-        return null;
-    }
 
     private async Task<object> ProbeAsync(CancellationToken cancellationToken)
     {
