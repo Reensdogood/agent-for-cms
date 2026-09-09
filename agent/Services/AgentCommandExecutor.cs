@@ -174,10 +174,12 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                 try
                 {
                     var name = process.ProcessName;
+                    // MainModule 접근은 권한에 따라 실패할 수 있다. 이름으로 먼저
+                    // 식별해야 관리자 권한으로 실행된 i-Vision도 누락되지 않는다.
+                    if (name.Contains("i-vision", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("ivision", StringComparison.OrdinalIgnoreCase)) return true;
                     var path = process.MainModule?.FileName ?? "";
-                    return name.Contains("i-vision", StringComparison.OrdinalIgnoreCase)
-                        || name.Contains("ivision", StringComparison.OrdinalIgnoreCase)
-                        || (name.Contains("updater", StringComparison.OrdinalIgnoreCase) && path.Contains("i-Vision Player", StringComparison.OrdinalIgnoreCase))
+                    return (name.Contains("updater", StringComparison.OrdinalIgnoreCase) && path.Contains("i-Vision Player", StringComparison.OrdinalIgnoreCase))
                         || path.Contains(@"i-Vision Player", StringComparison.OrdinalIgnoreCase);
                 }
                 catch { process.Dispose(); return false; }
