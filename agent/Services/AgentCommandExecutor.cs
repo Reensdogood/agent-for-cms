@@ -76,8 +76,8 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     }
 
     private static System.Diagnostics.Process[] GetIvisionProcesses()
-        => System.Diagnostics.Process.GetProcessesByName("i-Vision.Player")
-            .Concat(System.Diagnostics.Process.GetProcessesByName("i-Vision.PlayAgent"))
+        => System.Diagnostics.Process.GetProcessesByName("i-Vision.PlayAgent")
+            .Concat(System.Diagnostics.Process.GetProcessesByName("i-Vision.Player"))
             .ToArray();
 
     private async Task<object> ProbeAsync(CancellationToken cancellationToken)
