@@ -57,6 +57,11 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         // 시작 시점에 부모 체인을 캡처하고, 자식 -> 감시자 -> 런처 순서로 닫는다.
         var tree = CaptureIvisionTree();
         var stopped = 0;
+        // 최상위 감시자부터 중지해야 PlayAgent/Player 재생성이 일어나지 않는다.
+        foreach (var process in tree.Where(p => p.Name.Contains("Updater", StringComparison.OrdinalIgnoreCase)))
+            stopped += CloseOrKill(process.Process);
+        foreach (var process in tree.Where(p => p.Name.Contains("Manager", StringComparison.OrdinalIgnoreCase)))
+            stopped += KillProcess(process.Process);
         foreach (var process in tree.Where(p => p.Name.Equals("i-Vision.Player", StringComparison.OrdinalIgnoreCase)))
             stopped += CloseOrKill(process.Process);
         WaitForIvisionExit(1500);
@@ -71,6 +76,8 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
             // 재생성이 발생할 수 있으므로 이미지 전체를 Windows에 함께 종료시킨다.
             RunTaskKill("i-Vision.PlayAgent.exe");
             RunTaskKill("i-Vision.Player.exe");
+            RunTaskKill("iVision.Manager.exe");
+            RunTaskKill("iVisionUpdater.exe");
             System.Threading.Thread.Sleep(350);
         }
         var remaining = GetIvisionProcesses();
