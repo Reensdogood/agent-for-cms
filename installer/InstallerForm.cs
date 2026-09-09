@@ -15,6 +15,7 @@ internal sealed class InstallerForm : Form
     private readonly ComboBox _displayPort = new() { DropDownStyle = ComboBoxStyle.DropDown };
     private readonly CheckBox _displayEnabled = new() { Text = "이 장비에서 TV 제어 사용", Checked = true, AutoSize = true };
     private readonly Button _install = new() { Text = "Agent 설치", Height = 48, Dock = DockStyle.Fill, Margin = new Padding(0) };
+    private readonly Button _cancelSettings = new() { Text = "취소", Height = 42, Dock = DockStyle.Fill, Margin = new Padding(0), Visible = false };
     private readonly Button _uninstall = new() { Text = "기존 Agent 제거", Height = 42, Dock = DockStyle.Fill, Margin = new Padding(0) };
     private readonly Label _status = new() { AutoSize = false, Height = 44, ForeColor = Color.FromArgb(99, 99, 102), TextAlign = ContentAlignment.MiddleLeft };
     private readonly string _installDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Funnet", "funnet-gwanak-agent");
@@ -64,7 +65,7 @@ internal sealed class InstallerForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(44, 34, 44, 42),
             ColumnCount = 1,
-            RowCount = 12,
+            RowCount = 13,
         };
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
@@ -88,6 +89,7 @@ internal sealed class InstallerForm : Form
         panel.Controls.Add(Field("디스플레이 COM 포트", _displayPort));
         panel.Controls.Add(Field("TV 제어", _displayEnabled));
         panel.Controls.Add(_install);
+        panel.Controls.Add(_cancelSettings);
         panel.Controls.Add(_uninstall);
         panel.Controls.Add(_status);
         Controls.Add(panel);
@@ -99,7 +101,9 @@ internal sealed class InstallerForm : Form
         LoadExistingSettings();
         StylePrimaryButton(_install);
         StyleSecondaryButton(_uninstall);
+        StyleSecondaryButton(_cancelSettings);
         _install.Click += async (_, _) => await InstallAsync();
+        _cancelSettings.Click += (_, _) => Close();
         _uninstall.Click += (_, _) => Uninstall();
         AcceptButton = _install;
     }
@@ -122,7 +126,8 @@ internal sealed class InstallerForm : Form
                 if (display.TryGetProperty("port", out var port) && port.ValueKind == JsonValueKind.String) _displayPort.Text = port.GetString() ?? "";
             }
             _install.Text = "설정 저장";
-            _uninstall.Text = "취소";
+            _cancelSettings.Visible = true;
+            _uninstall.Text = "Agent 제거";
             _enrollmentKey.Enabled = false;
             _enrollmentKey.BackColor = Color.FromArgb(235, 235, 235);
             Text = "Funnet 관악 Agent 설정";
