@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Diagnostics;
+using System.Management;
 using Funnet.Gwanak.Agent.Infrastructure;
 using Funnet.Gwanak.Agent.Services;
 using Funnet.Gwanak.Agent.Display.Discovery;
@@ -38,7 +39,7 @@ internal static class Program
             foreach (var name in names) foreach (var process in Process.GetProcessesByName(name))
             {
                 var row = new Dictionary<string, object?> { ["name"] = process.ProcessName, ["pid"] = process.Id };
-                try { row["path"] = process.MainModule?.FileName; row["hasMainWindow"] = process.MainWindowHandle != IntPtr.Zero; row["canClose"] = !process.HasExited; }
+                try { row["path"] = process.MainModule?.FileName; row["hasMainWindow"] = process.MainWindowHandle != IntPtr.Zero; row["canClose"] = !process.HasExited; row["startedAt"] = process.StartTime; var info = new ManagementObjectSearcher($"SELECT ParentProcessId, CommandLine FROM Win32_Process WHERE ProcessId = {process.Id}").Get().Cast<ManagementObject>().FirstOrDefault(); row["parentPid"] = info?["ParentProcessId"]; row["commandLine"] = info?["CommandLine"]; }
                 catch (Exception error) { row["error"] = error.Message; }
                 finally { process.Dispose(); }
                 rows.Add(row);
