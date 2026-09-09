@@ -20,10 +20,12 @@ internal sealed class InstallerForm : Form
     private readonly string _installDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Funnet", "funnet-gwanak-agent");
 
     private readonly bool _configureOnly;
+    private readonly bool _updateOnly;
     private string _existingEnrollmentKey = "";
-    public InstallerForm(bool configureOnly = false)
+    public InstallerForm(bool configureOnly = false, bool updateOnly = false)
     {
         _configureOnly = configureOnly;
+        _updateOnly = updateOnly;
         Text = "Funnet 관악 Agent 설치";
         Width = 560; Height = 850; MinimumSize = new Size(540, 810);
         StartPosition = FormStartPosition.CenterScreen; Font = new Font("Segoe UI", 10F);
@@ -120,7 +122,9 @@ internal sealed class InstallerForm : Form
                 if (display.TryGetProperty("port", out var port) && port.ValueKind == JsonValueKind.String) _displayPort.Text = port.GetString() ?? "";
             }
             _install.Text = "설정 저장";
-            _uninstall.Text = "Agent 제거";
+            _uninstall.Text = "취소";
+            _enrollmentKey.Enabled = false;
+            _enrollmentKey.BackColor = Color.FromArgb(235, 235, 235);
             Text = "Funnet 관악 Agent 설정";
         }
         catch { }
@@ -203,6 +207,11 @@ internal sealed class InstallerForm : Form
 
     private async Task InstallAsync()
     {
+        if (_configureOnly && !_updateOnly)
+        {
+            await SaveSettingsOnlyAsync();
+            return;
+        }
         if (!Uri.TryCreate(_serverUrl.Text.Trim(), UriKind.Absolute, out var server) || (server.Scheme != "https" && server.Scheme != "http"))
         { ShowStatus("서버 주소를 확인해 주세요.", true); return; }
         if (!_configureOnly && _enrollmentKey.Text.Trim().Length < 16) { ShowStatus("장비 등록 키는 16자 이상이어야 합니다.", true); return; }
@@ -232,8 +241,28 @@ internal sealed class InstallerForm : Form
 
     public Task RunUpdateAsync() => InstallAsync();
 
+    private async Task SaveSettingsOnlyAsync()
+    {
+        if (!Uri.TryCreate(_serverUrl.Text.Trim(), UriKind.Absolute, out var server) || (server.Scheme != "https" && server.Scheme != "http"))
+        { ShowStatus("서버 주소를 확인해 주세요.", true); return; }
+        if (string.IsNullOrWhiteSpace(_deviceName.Text)) { ShowStatus("장비명을 입력해 주세요.", true); return; }
+        try
+        {
+            var port = _displayPort.Text.Trim();
+            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = _existingEnrollmentKey, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
+            await File.WriteAllTextAsync(Path.Combine(_installDirectory, "agent-settings.json"), JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
+            ShowStatus("설정을 저장했습니다. Agent를 재시작합니다.");
+            StopAgent();
+            var executable = Path.Combine(_installDirectory, "funnet-gwanak-agent.exe");
+            if (File.Exists(executable)) Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = _installDirectory });
+            BeginInvoke(Close);
+        }
+        catch (Exception exception) { ShowStatus(exception.Message, true); }
+    }
+
     private void Uninstall()
     {
+        if (_configureOnly) { Close(); return; }
         if (MessageBox.Show("Agent 실행파일과 자동실행 등록을 제거할까요? 장비 식별 정보는 재설치를 위해 보존됩니다.", "Agent 제거", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try
         {
