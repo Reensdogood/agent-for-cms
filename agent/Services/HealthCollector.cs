@@ -25,7 +25,8 @@ internal sealed class HealthCollector
             _identity.InstallationId,
             _settings.LocalName,
             Environment.MachineName,
-            Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.1.0",
+            Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.1.0",
             Environment.OSVersion.VersionString,
             DateTimeOffset.Now,
             GetForegroundProcessName(),
