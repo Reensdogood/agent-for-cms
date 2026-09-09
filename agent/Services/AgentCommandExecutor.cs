@@ -23,6 +23,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                     "ume.activate" => await _umeController.ActivateAsync(cancellationToken),
                     "ume.hide" => _umeController.HideAndRestoreDid(),
                     "ume.package.download" => await DownloadAsync(command, cancellationToken),
+                    "agent.package.download" => await DownloadAgentAsync(command, cancellationToken),
                     "display.power" => await DisplayPowerAsync(command, cancellationToken),
                     "display.input" => await DisplayInputAsync(command, cancellationToken),
                     "display.volume" => await DisplayVolumeAsync(command, cancellationToken),
@@ -59,6 +60,18 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     {
         var payload = command.Payload;
         return _packageDeployment.DownloadAsync(
+            payload.GetProperty("downloadPath").GetString() ?? throw new InvalidOperationException("downloadPath 누락"),
+            payload.GetProperty("fileName").GetString() ?? throw new InvalidOperationException("fileName 누락"),
+            payload.GetProperty("version").GetString() ?? throw new InvalidOperationException("version 누락"),
+            payload.GetProperty("sha256").GetString() ?? throw new InvalidOperationException("sha256 누락"),
+            payload.TryGetProperty("sizeBytes", out var size) ? size.GetInt64() : 0,
+            cancellationToken);
+    }
+
+    private Task<object> DownloadAgentAsync(AgentApiClient.AgentCommand command, CancellationToken cancellationToken)
+    {
+        var payload = command.Payload;
+        return _packageDeployment.DownloadAgentAsync(
             payload.GetProperty("downloadPath").GetString() ?? throw new InvalidOperationException("downloadPath 누락"),
             payload.GetProperty("fileName").GetString() ?? throw new InvalidOperationException("fileName 누락"),
             payload.GetProperty("version").GetString() ?? throw new InvalidOperationException("version 누락"),

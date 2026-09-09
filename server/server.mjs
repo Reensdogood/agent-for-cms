@@ -749,9 +749,9 @@ async function handleApi(req, res, url) {
     if (!session) return;
     if (!assertRole(session, res, ["admin", "operator"])) return;
     const fileName = path.basename(decodeURIComponent(String(req.headers["x-file-name"] || "")));
-    const match = /^UME-release-([0-9]+(?:\.[0-9]+){1,3})(?:\+[^\\/]+)?\.exe$/i.exec(fileName);
-    if (!match) return json(res, 400, { error: "파일명은 UME-release-{버전}.exe 형식이어야 합니다." });
-    if (db.prepare("SELECT id FROM releases WHERE version = ?").get(match[1])) {
+    const match = /^(UME-release|Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-([0-9]+(?:\.[0-9]+){1,3})(?:\+[^\\/]+)?\.exe$/i.exec(fileName);
+    if (!match) return json(res, 400, { error: "파일명은 UME-release-{버전}.exe 또는 Funnet.Gwanak.Agent-{버전}.exe 형식이어야 합니다." });
+    if (db.prepare("SELECT id FROM releases WHERE version = ?").get(match[2])) {
       return json(res, 409, { error: "이미 등록된 UME 버전입니다." });
     }
     const id = crypto.randomUUID();
@@ -760,9 +760,9 @@ async function handleApi(req, res, url) {
     const saved = await saveUpload(req, destination);
     const timestamp = now();
     db.prepare("INSERT INTO releases (id, version, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, match[1], fileName, destination, saved.size, saved.sha256, session.username, timestamp);
-    audit(session.username, "release.upload", id, { version: match[1], fileName, ...saved });
-    return json(res, 201, { release: { id, version: match[1], fileName, sizeBytes: saved.size, sha256: saved.sha256, createdAt: timestamp } });
+      .run(id, match[2], fileName, destination, saved.size, saved.sha256, session.username, timestamp);
+    audit(session.username, "release.upload", id, { version: match[2], fileName, ...saved });
+    return json(res, 201, { release: { id, version: match[2], fileName, sizeBytes: saved.size, sha256: saved.sha256, createdAt: timestamp } });
   }
 
   const releaseDownloadMatch = url.pathname.match(/^\/api\/agent\/releases\/([a-f0-9-]+)\/download$/i);
@@ -794,9 +794,10 @@ async function handleApi(req, res, url) {
     const devices = requestedIds.length
       ? db.prepare(`SELECT id FROM devices WHERE approved = 1${scope} AND id IN (${requestedIds.map(() => "?").join(",")})`).all(...(sameRegionOnly(session) ? [session.regionId] : []), ...requestedIds)
       : db.prepare(`SELECT id FROM devices WHERE approved = 1${scope}`).all(...(sameRegionOnly(session) ? [session.regionId] : []));
-    const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'ume.package.download', ?, ?)");
+    const commandType = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.file_name) ? "agent.package.download" : "ume.package.download";
+    const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
     const createdAt = now();
-    for (const device of devices) insert.run(crypto.randomUUID(), device.id, JSON.stringify({
+    for (const device of devices) insert.run(crypto.randomUUID(), device.id, commandType, JSON.stringify({
       releaseId: release.id, version: release.version, fileName: release.file_name,
       sizeBytes: release.size_bytes, sha256: release.sha256,
       downloadPath: `/api/agent/releases/${release.id}/download`,

@@ -8,9 +8,23 @@ internal sealed class PackageDeploymentService(AgentApiClient apiClient)
 {
     public async Task<object> DownloadAsync(string downloadPath, string fileName, string version,
         string expectedSha256, long expectedSize, CancellationToken cancellationToken)
+        => await DownloadCoreAsync(downloadPath, fileName, version, expectedSha256, expectedSize, true, cancellationToken);
+
+    public async Task<object> DownloadAgentAsync(string downloadPath, string fileName, string version,
+        string expectedSha256, long expectedSize, CancellationToken cancellationToken)
     {
-        if (!fileName.StartsWith("UME-release-", StringComparison.OrdinalIgnoreCase) ||
-            !fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+        var result = await DownloadCoreAsync(downloadPath, fileName, version, expectedSha256, expectedSize, false, cancellationToken);
+        var path = result.GetType().GetProperty("path")?.GetValue(result)?.ToString() ?? throw new InvalidOperationException("에이전트 파일 경로가 없습니다.");
+        _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path, "--update") { UseShellExecute = true });
+        return new { version, fileName, path, sha256 = expectedSha256, updated = true };
+    }
+
+    private async Task<object> DownloadCoreAsync(string downloadPath, string fileName, string version,
+        string expectedSha256, long expectedSize, bool requireSignature, CancellationToken cancellationToken)
+    {
+        if (!fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+            (requireSignature && !fileName.StartsWith("UME-release-", StringComparison.OrdinalIgnoreCase)) ||
+            (!requireSignature && !fileName.StartsWith("Funnet.Gwanak.Agent-", StringComparison.OrdinalIgnoreCase) && !fileName.StartsWith("funnet-gwanak-agent-setup-", StringComparison.OrdinalIgnoreCase)) ||
             fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             throw new InvalidOperationException("허용되지 않은 UME 배포 파일명입니다.");
 
@@ -40,15 +54,13 @@ internal sealed class PackageDeploymentService(AgentApiClient apiClient)
             throw new InvalidOperationException("다운로드 파일의 SHA-256 검증에 실패했습니다.");
         }
 
-        if (!AuthenticodeVerifier.IsTrusted(destination))
+        if (requireSignature && !AuthenticodeVerifier.IsTrusted(destination))
         {
             File.Delete(destination);
             throw new InvalidOperationException("UME 설치파일의 Windows 전자서명을 신뢰할 수 없습니다.");
         }
 
-        string publisher;
-        using (var certificate = new X509Certificate2(X509Certificate.CreateFromSignedFile(destination)))
-            publisher = certificate.Subject;
+        var publisher = requireSignature ? new X509Certificate2(X509Certificate.CreateFromSignedFile(destination)).Subject : "SHA-256 verified";
 
         return new { version, fileName, path = destination, sizeBytes = info.Length, sha256 = actualSha256, publisher, installed = false };
     }

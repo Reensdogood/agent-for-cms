@@ -6,6 +6,9 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
-        Application.Run(new InstallerForm(args.Contains("--configure", StringComparer.OrdinalIgnoreCase)));
+        var update = args.Contains("--update", StringComparer.OrdinalIgnoreCase);
+        var form = new InstallerForm(args.Contains("--configure", StringComparer.OrdinalIgnoreCase) || update);
+        if (update) form.Shown += async (_, _) => await form.RunUpdateAsync();
+        Application.Run(form);
     }
 }

@@ -230,6 +230,8 @@ internal sealed class InstallerForm : Form
         finally { _install.Enabled = true; }
     }
 
+    public Task RunUpdateAsync() => InstallAsync();
+
     private void Uninstall()
     {
         if (MessageBox.Show("Agent 실행파일과 자동실행 등록을 제거할까요? 장비 식별 정보는 재설치를 위해 보존됩니다.", "Agent 제거", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;

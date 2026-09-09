@@ -354,10 +354,11 @@ function renderReleases() {
     const icon = textElement("div", "package-icon", "UME");
     const info = document.createElement("div");
     info.className = "release-info";
-    info.append(textElement("h3", "", `UME ${release.version}`), textElement("p", "", `${release.fileName} · ${formatBytes(release.sizeBytes)}`), textElement("code", "hash", `SHA-256 ${release.sha256}`), textElement("small", "", `${release.createdBy} · ${formatTime(release.createdAt)}`));
+    const isAgent = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.fileName);
+    info.append(textElement("h3", "", `${isAgent ? "Agent" : "UME"} ${release.version}`), textElement("p", "", `${release.fileName} · ${formatBytes(release.sizeBytes)}`), textElement("code", "hash", `SHA-256 ${release.sha256}`), textElement("small", "", `${release.createdBy} · ${formatTime(release.createdAt)}`));
     const distribute = textElement("button", "", "전체 장비에 배포");
     distribute.addEventListener("click", async () => {
-      if (!await confirmAction(`UME ${release.version}을 배포할까요?`, "승인된 모든 PC가 설치파일을 다운로드하고 전자서명을 검증합니다. 설치는 자동으로 실행되지 않습니다.", "배포")) return;
+      if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version}을 배포할까요?`, isAgent ? "승인된 모든 에이전트가 SHA-256 검증 후 자동으로 업데이트됩니다." : "승인된 모든 PC가 설치파일을 다운로드하고 전자서명을 검증합니다.", "배포")) return;
       distribute.disabled = true;
       try { const result = await api(`/api/releases/${release.id}/distribute`, { method: "POST", body: "{}" }); toast(`${result.queued}대에 다운로드 명령을 보냈습니다.`); }
       catch (error) { toast(error.message, "error"); }
