@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics;
 using Funnet.Gwanak.Agent.Infrastructure;
 using Funnet.Gwanak.Agent.Services;
 using Funnet.Gwanak.Agent.Display.Discovery;
@@ -27,6 +28,19 @@ internal static class Program
             var collector = new HealthCollector(selfTestSettings, selfTestIdentityStore.LoadOrCreate());
             var health = collector.Collect();
             Console.WriteLine(JsonSerializer.Serialize(health, JsonDefaults.Indented));
+            return;
+        }
+
+        if (args.Any(value => string.Equals(value, "--diagnose-ivision", StringComparison.OrdinalIgnoreCase)))
+        {
+            var names = new[] { "i-Vision.Player", "i-Vision.PlayAgent" };
+            var rows = names.SelectMany(name => Process.GetProcessesByName(name).Select(process =>
+            {
+                try { return new { name = process.ProcessName, pid = process.Id, path = process.MainModule?.FileName, hasMainWindow = process.MainWindowHandle != IntPtr.Zero, canClose = !process.HasExited }; }
+                catch (Exception error) { return new { name = process.ProcessName, pid = process.Id, path = (string?)null, hasMainWindow = false, canClose = false, error = error.Message }; }
+                finally { process.Dispose(); }
+            })).ToArray();
+            Console.WriteLine(JsonSerializer.Serialize(new { timestamp = DateTimeOffset.Now, processes = rows }, JsonDefaults.Indented));
             return;
         }
 
