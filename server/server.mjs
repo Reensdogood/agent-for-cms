@@ -16,7 +16,9 @@ const port = Number(process.env.PORT || 4170);
 const adminUser = process.env.FUNNET_ADMIN_USER || "admin";
 const adminPassword = process.env.FUNNET_ADMIN_PASSWORD;
 const enrollmentKey = process.env.FUNNET_ENROLLMENT_KEY;
-const secureCookies = process.env.FUNNET_COOKIE_SECURE === "true" || process.env.NODE_ENV === "production";
+// 운영 여부와 무관하게 명시 설정을 우선한다. 내부망 HTTP(4171) 테스트에서는
+// FUNNET_COOKIE_SECURE=false로 세션 쿠키를 저장할 수 있어야 한다.
+const secureCookies = process.env.FUNNET_COOKIE_SECURE === "true";
 const maxUploadBytes = Number(process.env.FUNNET_MAX_UPLOAD_BYTES || 1024 * 1024 * 1024);
 
 if (!adminPassword || adminPassword.length < 10) {
