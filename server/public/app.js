@@ -180,8 +180,11 @@ function deviceRow(device) {
   actions.append(tv);
   const ivisionStop = textElement("button", "small secondary", "i-vision 종료");
   const ivisionRestart = textElement("button", "small secondary", "i-vision 재실행");
+  const windowsShutdown = textElement("button", "small danger", "Windows 종료");
   ivisionStop.disabled = ivisionRestart.disabled = !device.approved;
   for (const [button, action, label] of [[ivisionStop, "stop", "종료"], [ivisionRestart, "restart", "재실행"]]) button.addEventListener("click", async () => { if (!await confirmAction(`${device.displayName}의 i-vision을 ${label}할까요?`, "현재 실행 중인 i-Vision.Player 프로세스 기준으로 처리합니다.", label)) return; button.disabled = true; try { await api(`/api/devices/${device.id}/ivision/${action}`, { method: "POST", body: "{}" }); toast(`i-vision ${label} 명령을 보냈습니다.`); setTimeout(loadDevices, 1800); } catch (error) { toast(error.message, "error"); } finally { button.disabled = !device.approved; } });
+  windowsShutdown.disabled = !device.approved;
+  windowsShutdown.addEventListener("click", async () => { if (!await confirmAction(`${device.displayName}의 Windows를 종료할까요?`, "저장하지 않은 작업이 있으면 손실될 수 있습니다.", "Windows 종료")) return; windowsShutdown.disabled = true; try { await api(`/api/devices/${device.id}/windows/shutdown`, { method: "POST", body: "{}" }); toast(`${device.displayName}에 Windows 종료 명령을 전송했습니다.`); } catch (error) { toast(error.message, "error"); windowsShutdown.disabled = !device.approved; } });
   const edit = textElement("button", "small secondary", "수정");
   edit.addEventListener("click", () => {
     $("#renameDeviceId").value = device.id;
@@ -196,7 +199,7 @@ function deviceRow(device) {
     catch (error) { toast(error.message, "error"); }
     finally { remove.disabled = false; }
   });
-  actions.append(probe, runUme, ivisionStop, ivisionRestart, edit, remove);
+  actions.append(probe, runUme, ivisionStop, ivisionRestart, windowsShutdown, edit, remove);
   row.append(actions);
   return row;
 }
@@ -545,6 +548,13 @@ $$('[data-bulk-ivision]').forEach((button) => button.addEventListener("click", a
   if (!await confirmAction(`온라인 장비 전체의 i-Vision을 ${label}할까요?`, "현재 온라인인 승인 장비에만 전송됩니다.", label)) return;
   button.disabled = true;
   try { const deviceIds = devices.filter((device) => device.approved && device.status === "online" && (selectedRegionId === "all" || device.regionId === selectedRegionId)).map((device) => device.id); const result = await api(`/api/ivision/bulk/${action}`, { method: "POST", body: JSON.stringify({ deviceIds }) }); toast(`${result.queued}대의 온라인 장비에 i-Vision ${label} 명령을 전송했습니다.`); }
+  catch (error) { toast(error.message, "error"); }
+  finally { button.disabled = false; }
+}));
+$$('[data-bulk-windows]').forEach((button) => button.addEventListener("click", async () => {
+  if (!await confirmAction("온라인 장비 전체의 Windows를 종료할까요?", "저장하지 않은 작업이 손실될 수 있습니다. 현재 지역 필터의 온라인 승인 장비에만 전송됩니다.", "Windows 종료")) return;
+  button.disabled = true;
+  try { const deviceIds = devices.filter((device) => device.approved && device.status === "online" && (selectedRegionId === "all" || device.regionId === selectedRegionId)).map((device) => device.id); const result = await api("/api/windows/bulk/shutdown", { method: "POST", body: JSON.stringify({ deviceIds }) }); toast(`${result.queued}대의 장비에 Windows 종료 명령을 전송했습니다.`); }
   catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; }
 }));

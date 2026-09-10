@@ -24,6 +24,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                     "ume.hide" => _umeController.HideAndRestoreDid(),
                     "ivision.stop" => StopIvision(),
                     "ivision.restart" => RestartIvision(),
+                    "windows.shutdown" => ScheduleWindowsShutdown(),
                     "ume.package.download" => await DownloadAsync(command, cancellationToken),
                     "agent.package.download" => await DownloadAgentAsync(command, cancellationToken),
                     "display.power" => await DisplayPowerAsync(command, cancellationToken),
@@ -175,6 +176,17 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         System.Threading.Thread.Sleep(1000);
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
         return new { restarted = true, process = "i-Vision.Player" };
+    }
+
+    private static object ScheduleWindowsShutdown()
+    {
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(1500);
+            try { Process.Start(new ProcessStartInfo("shutdown.exe", "/s /t 0 /f") { CreateNoWindow = true, UseShellExecute = false }); }
+            catch { }
+        });
+        return new { scheduled = true, action = "shutdown", delaySeconds = 1.5 };
     }
 
     private sealed record IvisionProcess(System.Diagnostics.Process Process, string Name, string? Path, bool IsIvisionFolder);

@@ -938,6 +938,20 @@ async function handleApi(req, res, url) {
   }
 
   const displayCommandMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/display\/(power|input|volume|status)$/i);
+  const windowsCommandMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/windows\/(shutdown)$/i);
+  if (req.method === "POST" && windowsCommandMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const device = db.prepare("SELECT id, region_id, approved FROM devices WHERE id = ?").get(windowsCommandMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 제어할 수 있습니다." });
+    if (!device.approved) return json(res, 400, { error: "승인된 장비만 제어할 수 있습니다." });
+    const commandId = crypto.randomUUID();
+    db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'windows.shutdown', '{}', ?)").run(commandId, device.id, now());
+    audit(session.username, "windows.shutdown", device.id, { commandId });
+    return json(res, 202, { commandId, status: "pending" });
+  }
   if (req.method === "POST" && displayCommandMatch) {
     const session = requireAdmin(req, res, true);
     if (!session) return;
@@ -1030,6 +1044,22 @@ async function handleApi(req, res, url) {
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, '{}', ?)");
     const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, type, now()); return { deviceId: row.id, commandId: id }; });
     audit(session.username, type, "ALL", { queued: commandIds.length });
+    return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
+  }
+
+  const windowsBulkMatch = url.pathname.match(/^\/api\/windows\/bulk\/(shutdown)$/i);
+  if (req.method === "POST" && windowsBulkMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const body = await readJson(req);
+    const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
+    const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
+    const args = sameRegionOnly(session) ? [session.regionId] : [];
+    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
+    const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'windows.shutdown', '{}', ?)");
+    const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, now()); return { deviceId: row.id, commandId: id }; });
+    audit(session.username, "windows.shutdown.bulk", "ALL", { queued: commandIds.length });
     return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
   }
 
