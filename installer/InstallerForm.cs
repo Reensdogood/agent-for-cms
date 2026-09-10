@@ -13,6 +13,7 @@ internal sealed class InstallerForm : Form
     private readonly TextBox _serverUrl = new() { Text = "https://agent.funnet.kr", PlaceholderText = "https://agent.funnet.kr" };
     private readonly TextBox _enrollmentKey = new() { UseSystemPasswordChar = true, PlaceholderText = "관리자 화면에서 발급한 장비 등록 키" };
     private readonly TextBox _deviceName = new() { Text = Environment.MachineName };
+    private readonly ComboBox _displayModel = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly ComboBox _displayPort = new() { DropDownStyle = ComboBoxStyle.DropDown };
     private readonly CheckBox _displayEnabled = new() { Text = "이 장비에서 TV 제어 사용", Checked = true, AutoSize = true };
     private readonly Button _install = new() { Text = "Agent 설치", Height = 48, Dock = DockStyle.Fill, Margin = new Padding(0) };
@@ -86,7 +87,9 @@ internal sealed class InstallerForm : Form
         panel.Controls.Add(Field("서버 주소", _serverUrl));
         panel.Controls.Add(Field("장비 등록 키", _enrollmentKey));
         panel.Controls.Add(Field("장비명", _deviceName));
-        panel.Controls.Add(Field("Samsung 모델", new Label { Text = "LH75QET (고정)", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }));
+        _displayModel.Items.AddRange(new object[] { "LH75QET", "LH65QET", "LH85QET", "LH65QBC", "LH75QBC", "LH85QBC" });
+        _displayModel.SelectedIndex = 0;
+        panel.Controls.Add(Field("Samsung 모델", _displayModel));
         panel.Controls.Add(Field("디스플레이 COM 포트", _displayPort));
         panel.Controls.Add(Field("TV 제어", _displayEnabled));
         panel.Controls.Add(_install);
@@ -124,6 +127,12 @@ internal sealed class InstallerForm : Form
             if (root.TryGetProperty("display", out var display))
             {
                 if (display.TryGetProperty("enabled", out var enabled)) _displayEnabled.Checked = enabled.GetBoolean();
+                if (display.TryGetProperty("model", out var model) && model.ValueKind == JsonValueKind.String)
+                {
+                    var configuredModel = model.GetString();
+                    var index = _displayModel.Items.IndexOf(configuredModel);
+                    if (index >= 0) _displayModel.SelectedIndex = index;
+                }
                 if (display.TryGetProperty("port", out var port) && port.ValueKind == JsonValueKind.String) _displayPort.Text = port.GetString() ?? "";
             }
             _install.Text = "설정 저장";
@@ -231,7 +240,7 @@ internal sealed class InstallerForm : Form
             await using (var output = new FileStream(executable, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true)) await source.CopyToAsync(output);
             var port = _displayPort.Text.Trim();
             var key = string.IsNullOrWhiteSpace(_enrollmentKey.Text) ? _existingEnrollmentKey : _enrollmentKey.Text.Trim();
-            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = key, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
+            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = key, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = _displayModel.SelectedItem?.ToString() ?? "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
             await File.WriteAllTextAsync(Path.Combine(_installDirectory, "agent-settings.json"), JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
             var setupCopy = Path.Combine(_installDirectory, "funnet-gwanak-agent-setup.exe");
             if (!_configureOnly && !string.Equals(Process.GetCurrentProcess().MainModule?.FileName, setupCopy, StringComparison.OrdinalIgnoreCase)) File.Copy(Process.GetCurrentProcess().MainModule?.FileName ?? "", setupCopy, true);
@@ -255,7 +264,7 @@ internal sealed class InstallerForm : Form
         try
         {
             var port = _displayPort.Text.Trim();
-            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = _existingEnrollmentKey, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
+            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = _existingEnrollmentKey, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = _displayModel.SelectedItem?.ToString() ?? "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
             await File.WriteAllTextAsync(Path.Combine(_installDirectory, "agent-settings.json"), JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
             ShowStatus("설정을 저장했습니다. Agent를 재시작합니다.");
             StopAgent();
