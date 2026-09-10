@@ -332,6 +332,9 @@ internal sealed class InstallerForm : Form
 
     private static void RegisterElevatedStartup(string executable)
     {
+        // 자동 업데이트/설정 저장 때 이미 등록된 작업을 다시 만들지 않는다.
+        // 재생성 시마다 schtasks /RL HIGHEST가 UAC를 요청하는 것을 방지한다.
+        if (ScheduledTaskExists()) return;
         using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
             $"/Create /TN \"{ScheduledTaskName}\" /TR \"\\\"{executable}\\\"\" /SC ONLOGON /RL HIGHEST /F")
         {
@@ -341,6 +344,18 @@ internal sealed class InstallerForm : Form
         });
         task?.WaitForExit(15000);
         if (task is null || task.ExitCode != 0) throw new InvalidOperationException("Agent 관리자 권한 자동 실행 등록에 실패했습니다.");
+    }
+
+    private static bool ScheduledTaskExists()
+    {
+        try
+        {
+            using var query = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Query /TN \"{ScheduledTaskName}\"")
+            { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true });
+            query?.WaitForExit(5000);
+            return query?.ExitCode == 0;
+        }
+        catch { return false; }
     }
 
     private static void DeleteScheduledStartup()
