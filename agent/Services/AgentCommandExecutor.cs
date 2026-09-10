@@ -50,7 +50,44 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     private async Task<object> DisplayVolumeAsync(AgentApiClient.AgentCommand command, CancellationToken ct)
     { await using var client = CreateDisplayClient(); var value = command.Payload.GetProperty("value").GetInt32(); await client.SetVolumeAsync(value, ct); return new { volume = value }; }
     private async Task<object> DisplayStatusAsync(CancellationToken ct)
-    { await using var client = CreateDisplayClient(); var power = await client.GetPowerAsync(ct); var input = await client.GetInputAsync(ct); var volume = await client.GetVolumeAsync(ct); return new { power = power == SamsungPowerState.On ? "on" : "off", input = input == SamsungInput.Hdmi1 ? "HDMI1" : "HDMI2", volume, connection = "connected" }; }
+    {
+        await using var client = CreateDisplayClient();
+        var power = await TryReadAsync("power", () => client.GetPowerAsync(ct), ct);
+        var input = await TryReadAsync("input", () => client.GetInputAsync(ct), ct);
+        var volume = await TryReadAsync("volume", () => client.GetVolumeAsync(ct), ct);
+
+        var errors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (power.Error is not null) errors["power"] = power.Error;
+        if (input.Error is not null) errors["input"] = input.Error;
+        if (volume.Error is not null) errors["volume"] = volume.Error;
+        var connected = power.Value is not null || input.Value is not null || volume.Value is not null;
+        var standby = power.Value is SamsungPowerState.Off && input.Value is null && volume.Value is null;
+        return new
+        {
+            power = power.Value is SamsungPowerState p ? p == SamsungPowerState.On ? "on" : "off" : null,
+            input = input.Value is SamsungInput i ? i == SamsungInput.Hdmi1 ? "HDMI1" : "HDMI2" : null,
+            volume = volume.Value,
+            connection = connected ? (standby ? "standby" : "connected") : "timeout",
+            partial = errors.Count > 0,
+            errors,
+            retryCount = 2
+        };
+    }
+
+    private static async Task<(T? Value, string? Error)> TryReadAsync<T>(string name, Func<Task<T>> read, CancellationToken ct) where T : struct
+    {
+        Exception? last = null;
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            try { return (await read(), null); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                last = ex;
+                if (attempt < 2) await Task.Delay(150, ct);
+            }
+        }
+        return (default, $"{name}: {last?.Message ?? "응답 없음"}");
+    }
     private SamsungMdcClient CreateDisplayClient()
     { if (!_settings.Display.Enabled || string.IsNullOrWhiteSpace(_settings.Display.Port)) throw new DisplayControlException(DisplayErrorCode.PortNotFound, "Samsung display is not enabled or port is not configured."); var transport = new WindowsSerialTransportFactory().Create(SerialPortConfiguration.ForSamsungMdc(_settings.Display.Port)); return new SamsungMdcClient(transport); }
 
