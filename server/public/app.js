@@ -366,9 +366,8 @@ function openSchedule(schedule = null) {
   $("#scheduleName").value = schedule?.name || "";
   $("#scheduleTime").value = schedule?.localTime || "09:00";
   $("#scheduleEnabled").checked = schedule?.enabled ?? true;
-  let regionBox = $("#scheduleRegions");
-  if (!regionBox) { regionBox = document.createElement("div"); regionBox.id = "scheduleRegions"; regionBox.className = "day-picker region-picker"; $("#scheduleForm").prepend(regionBox); }
-  regionBox.replaceChildren(...regionInfo.regions.map((region) => { const label = document.createElement("label"); const input = document.createElement("input"); input.type = "checkbox"; input.name = "scheduleRegion"; input.value = region.id; input.checked = schedule?.regionIds?.includes(region.id) ?? true; label.append(input, region.name); return label; }));
+  const regionBox = $("#scheduleRegions");
+  regionBox.replaceChildren(...regionInfo.regions.map((region) => { const label = document.createElement("label"); const input = document.createElement("input"); input.type = "checkbox"; input.name = "scheduleRegion"; input.value = region.id; input.checked = schedule?.regionIds?.length ? schedule.regionIds.includes(region.id) : true; label.append(input, region.name); return label; }));
   $$('input[name="day"]').forEach((input) => { input.checked = schedule ? schedule.days.includes(Number(input.value)) : [1, 2, 3, 4, 5].includes(Number(input.value)); });
   $("#scheduleDialog").showModal();
 }
@@ -525,6 +524,7 @@ $$('[data-bulk-display]').forEach((button) => button.addEventListener("click", a
   button.disabled = true;
   try {
     const payload = kind === "power" ? { on: value === "on" } : { input: value };
+    payload.deviceIds = devices.filter((device) => device.approved && device.status === "online" && (selectedRegionId === "all" || device.regionId === selectedRegionId)).map((device) => device.id);
     const result = await api(`/api/display/bulk/${kind}`, { method: "POST", body: JSON.stringify(payload) });
     toast(`${result.queued}대의 온라인 장비에 ${value} 명령을 전송했습니다.`);
   } catch (error) { toast(error.message, "error"); }
@@ -543,7 +543,7 @@ $$('[data-bulk-ivision]').forEach((button) => button.addEventListener("click", a
   const label = action === "stop" ? "종료" : "재실행";
   if (!await confirmAction(`온라인 장비 전체의 i-Vision을 ${label}할까요?`, "현재 온라인인 승인 장비에만 전송됩니다.", label)) return;
   button.disabled = true;
-  try { const result = await api(`/api/ivision/bulk/${action}`, { method: "POST", body: "{}" }); toast(`${result.queued}대의 온라인 장비에 i-Vision ${label} 명령을 전송했습니다.`); }
+  try { const deviceIds = devices.filter((device) => device.approved && device.status === "online" && (selectedRegionId === "all" || device.regionId === selectedRegionId)).map((device) => device.id); const result = await api(`/api/ivision/bulk/${action}`, { method: "POST", body: JSON.stringify({ deviceIds }) }); toast(`${result.queued}대의 온라인 장비에 i-Vision ${label} 명령을 전송했습니다.`); }
   catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; }
 }));
@@ -551,7 +551,9 @@ $("#scheduleForm").addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();
   const id = $("#scheduleId").value;
-  const body = JSON.stringify({ name: $("#scheduleName").value, localTime: $("#scheduleTime").value, regionIds: $$('input[name="scheduleRegion"]:checked').map((input) => input.value), days: $$('input[name="day"]:checked').map((input) => Number(input.value)), enabled: $("#scheduleEnabled").checked });
+  const regionIds = $$('input[name="scheduleRegion"]:checked').map((input) => input.value);
+  if (!regionIds.length) { event.preventDefault(); toast("대상 지역을 하나 이상 선택해 주세요.", "error"); return; }
+  const body = JSON.stringify({ name: $("#scheduleName").value, localTime: $("#scheduleTime").value, regionIds, days: $$('input[name="day"]:checked').map((input) => Number(input.value)), enabled: $("#scheduleEnabled").checked });
   try { await api(id ? `/api/schedules/${id}` : "/api/schedules", { method: id ? "PUT" : "POST", body }); $("#scheduleDialog").close(); await loadSchedules(); toast("스케줄을 저장했습니다."); }
   catch (error) { handleError(error); }
 });
