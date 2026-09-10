@@ -1149,7 +1149,6 @@ function validateSchedule(value) {
   if (!days.length) throw Object.assign(new Error("실행 요일을 하나 이상 선택해 주세요."), { status: 400 });
   const regionIds = [...new Set((Array.isArray(value.regionIds) ? value.regionIds : []).map(String).filter(Boolean))];
   const validRegions = db.prepare(`SELECT id FROM regions WHERE id IN (${regionIds.length ? regionIds.map(() => "?").join(",") : "NULL"})`).all(...regionIds).map((row) => row.id);
-  if (!validRegions.length) throw Object.assign(new Error("대상 지역을 하나 이상 선택해 주세요."), { status: 400 });
   return { name, localTime, days, regionIds: validRegions, enabled: value.enabled !== false };
 }
 
