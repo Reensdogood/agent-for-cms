@@ -409,6 +409,18 @@ function compareReleaseVersions(left, right) {
   return 0;
 }
 
+function humanizeOsVersion(value) {
+  const raw = String(value || "");
+  const match = raw.match(/10\.0\.(\d+)/i);
+  if (!match) return raw || null;
+  const build = Number(match[1]);
+  if (build >= 26100) return `Windows 11 (24H2) · 빌드 ${build}`;
+  if (build >= 22621) return `Windows 11 · 빌드 ${build}`;
+  if (build >= 22000) return `Windows 11 · 빌드 ${build}`;
+  if (build >= 19041) return `Windows 10 · 빌드 ${build}`;
+  return `Windows · 빌드 ${build}`;
+}
+
 function deviceDto(row) {
   let displayEnabled = false;
   let osVersion = null;
@@ -419,7 +431,7 @@ function deviceDto(row) {
   else if (displayCheck?.status === "failed") displayConnection = "연결 실패";
   return {
     id: row.id,
-    osVersion,
+    osVersion: humanizeOsVersion(osVersion),
     installationId: row.installation_id,
     regionId: row.region_id,
     regionName: row.region_name || "미지정",
