@@ -230,7 +230,7 @@ function renderRegionKeys() {
     const copy = document.createElement("div");
     copy.append(textElement("strong", "", `${region.name}${region.isDefault ? " · 기본" : ""}`), textElement("code", "", region.enrollmentKey));
     const copyButton = textElement("button", "small secondary", "키 복사");
-    copyButton.addEventListener("click", async () => { await navigator.clipboard.writeText(region.enrollmentKey); toast("등록 키를 복사했습니다."); });
+    copyButton.addEventListener("click", async () => { try { await copyText(region.enrollmentKey); toast("등록 지역 키를 복사했습니다."); } catch (error) { toast(`복사하지 못했습니다: ${error.message}`, "error"); } });
     const rotate = textElement("button", "small secondary", "키 재발급");
     rotate.addEventListener("click", async () => {
       if (!await confirmAction(`${region.name} 등록 키를 재발급할까요?`, "기존 등록 장비는 계속 동작하지만, 기존 키로는 새 장비 등록이 되지 않습니다.", "재발급")) return;
@@ -457,7 +457,7 @@ $$(".nav-item").forEach((item) => item.addEventListener("click", () => showPage(
 $$(".jump-button").forEach((item) => item.addEventListener("click", () => showPage(item.dataset.jump)));
 $$("[data-copy]").forEach((button) => button.addEventListener("click", async () => {
   const input = $(`#${button.dataset.copy}`);
-  await navigator.clipboard.writeText(input.value);
+  await copyText(input.value);
   toast("복사했습니다.");
 }));
 $("#addRegionButton").addEventListener("click", () => { $("#regionName").value = ""; $("#regionDialog").showModal(); });
@@ -516,6 +516,14 @@ $$('[data-bulk-display]').forEach((button) => button.addEventListener("click", a
   } catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; }
 }));
+async function copyText(value) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) { await navigator.clipboard.writeText(value); return; }
+  const area = document.createElement("textarea");
+  area.value = value; area.readOnly = true; area.style.position = "fixed"; area.style.opacity = "0";
+  document.body.append(area); area.focus(); area.select();
+  const copied = document.execCommand("copy"); area.remove();
+  if (!copied) throw new Error("브라우저가 클립보드 접근을 허용하지 않았습니다.");
+}
 $$('[data-bulk-ivision]').forEach((button) => button.addEventListener("click", async () => {
   const action = button.dataset.bulkIvision;
   const label = action === "stop" ? "종료" : "재실행";

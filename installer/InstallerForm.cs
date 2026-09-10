@@ -11,7 +11,7 @@ internal sealed class InstallerForm : Form
     private const string RunValueName = "funnet-gwanak-agent";
     private const string ScheduledTaskName = "Funnet Gwanak Agent";
     private readonly TextBox _serverUrl = new() { Text = "https://agent.funnet.kr", PlaceholderText = "https://agent.funnet.kr" };
-    private readonly TextBox _enrollmentKey = new() { UseSystemPasswordChar = true, PlaceholderText = "관리자 화면에서 발급한 장비 등록 키" };
+    private readonly TextBox _enrollmentKey = new() { UseSystemPasswordChar = true, PlaceholderText = "관리자 화면에서 발급한 등록 지역 키" };
     private readonly TextBox _deviceName = new() { Text = Environment.MachineName };
     private readonly ComboBox _displayModel = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly ComboBox _displayPort = new() { DropDownStyle = ComboBoxStyle.DropDown };
@@ -85,7 +85,7 @@ internal sealed class InstallerForm : Form
         panel.Controls.Add(title);
         panel.Controls.Add(subtitle);
         panel.Controls.Add(Field("서버 주소", _serverUrl));
-        panel.Controls.Add(Field("장비 등록 키", _enrollmentKey));
+        panel.Controls.Add(Field("등록 지역 키", _enrollmentKey));
         panel.Controls.Add(Field("장비명", _deviceName));
         _displayModel.Items.AddRange(new object[] { "LH75QET", "LH65QET", "LH85QET", "LH65QBC", "LH75QBC", "LH85QBC" });
         _displayModel.SelectedIndex = 0;
