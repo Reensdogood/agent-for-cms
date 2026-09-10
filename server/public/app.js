@@ -394,7 +394,7 @@ function renderReleases() {
       finally { distribute.disabled = false; }
     });
     const remove = textElement("button", "small danger", "삭제");
-    remove.addEventListener("click", async () => { if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version} 파일을 삭제할까요?`, "배포 대기 중인 파일은 삭제할 수 없습니다.", "삭제")) return; try { await api(`/api/releases/${release.id}`, { method: "DELETE" }); await loadReleases(); toast("업데이트 파일을 삭제했습니다."); } catch (error) { toast(error.message, "error"); } });
+    remove.addEventListener("click", async () => { if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version} 파일을 삭제할까요?`, isAgent ? "이 Agent 버전의 대기 중인 업데이트 명령과 파일을 함께 삭제합니다." : "배포 대기 중인 UME 파일은 삭제할 수 없습니다.", "삭제")) return; try { const result = await api(`/api/releases/${release.id}`, { method: "DELETE" }); await loadReleases(); toast(result.removedCommands ? `업데이트 파일과 대기 명령 ${result.removedCommands}건을 삭제했습니다.` : "업데이트 파일을 삭제했습니다."); } catch (error) { toast(error.message, "error"); } });
     const actions = textElement("div", "release-actions", ""); actions.append(distribute, remove);
     card.append(icon, info, actions); return card;
   }));

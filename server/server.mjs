@@ -882,12 +882,18 @@ async function handleApi(req, res, url) {
     if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseDeleteMatch[1]);
     if (!release) return json(res, 404, { error: "업데이트 파일을 찾을 수 없습니다." });
+    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.file_name);
     const pending = db.prepare("SELECT COUNT(*) AS count FROM commands WHERE type IN ('agent.package.download','ume.package.download') AND status = 'pending' AND payload_json LIKE ?").get(`%${release.id}%`);
-    if (Number(pending?.count || 0) > 0) return json(res, 409, { error: "배포 대기 중인 업데이트는 삭제할 수 없습니다." });
+    if (Number(pending?.count || 0) > 0 && !isAgentRelease) return json(res, 409, { error: "UME 배포 대기 중인 업데이트는 삭제할 수 없습니다." });
+    let removedCommands = 0;
+    if (isAgentRelease) {
+      const result = db.prepare("DELETE FROM commands WHERE type = 'agent.package.download' AND status IN ('pending','delivered') AND payload_json LIKE ?").run(`%${release.id}%`);
+      removedCommands = Number(result.changes || 0);
+    }
     db.prepare("DELETE FROM releases WHERE id = ?").run(release.id);
     try { if (fs.existsSync(release.file_path)) fs.unlinkSync(release.file_path); } catch (error) { console.error(error); }
-    audit(session.username, "release.delete", release.id, { version: release.version, fileName: release.file_name });
-    return json(res, 200, { deleted: true });
+    audit(session.username, "release.delete", release.id, { version: release.version, fileName: release.file_name, removedCommands });
+    return json(res, 200, { deleted: true, removedCommands });
   }
 
   const displayCommandMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/display\/(power|input|volume|status)$/i);
