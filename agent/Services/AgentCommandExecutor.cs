@@ -93,6 +93,13 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         try { foreach (var process in processes) { try { if (process.ProcessName.Equals("i-Vision.Player", StringComparison.OrdinalIgnoreCase)) path ??= process.MainModule?.FileName; } catch { } } }
         finally { foreach (var process in processes) process.Dispose(); }
         StopIvision();
+        // 관리자 권한 프로세스는 MainModule 경로 조회가 거부될 수 있다.
+        // 진단에서 확인된 기본 설치 경로를 안전한 대체 경로로 사용한다.
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            var defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
+            if (File.Exists(defaultPath)) path = defaultPath;
+        }
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
