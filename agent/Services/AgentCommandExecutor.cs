@@ -1,5 +1,6 @@
 namespace Funnet.Gwanak.Agent.Services;
 
+using System.Diagnostics;
 using Funnet.Gwanak.Agent.Display.Serial;
 using Funnet.Gwanak.Agent.Display.SamsungMdc;
 using Funnet.Gwanak.Agent.Display;
