@@ -7,6 +7,7 @@ let devices = [];
 let schedules = [];
 let releases = [];
 let releaseFilter = "all";
+let selectedRegionId = "all";
 let users = [];
 let currentSession = null;
 let regionInfo = { serverBaseUrl: "", regions: [] };
@@ -61,13 +62,14 @@ function textElement(tag, className, text) {
 
 function renderDevices() {
   const query = $("#searchInput").value.trim().toLowerCase();
-  const visible = devices.filter((device) => `${device.displayName} ${device.id} ${device.machineName || ""}`.toLowerCase().includes(query));
-  $("#countTotal").textContent = devices.length;
-  $("#countApproved").textContent = `승인 ${devices.filter((d) => d.approved).length} · 대기 ${devices.filter((d) => !d.approved).length}`;
-  $("#countOnline").textContent = devices.filter((d) => d.status === "online").length;
-  $("#countUmeRunning").textContent = devices.filter((d) => d.ume?.running).length;
-  $("#countIvisionRunning").textContent = devices.filter((d) => d.ivisionRunning).length;
-  const umeVersions = [...new Set(devices.map((d) => d.ume?.version).filter(Boolean))];
+  const scoped = devices.filter((device) => selectedRegionId === "all" || device.regionId === selectedRegionId);
+  const visible = scoped.filter((device) => `${device.displayName} ${device.id} ${device.machineName || ""}`.toLowerCase().includes(query));
+  $("#countTotal").textContent = scoped.length;
+  $("#countApproved").textContent = `승인 ${scoped.filter((d) => d.approved).length} · 대기 ${scoped.filter((d) => !d.approved).length}`;
+  $("#countOnline").textContent = scoped.filter((d) => d.status === "online").length;
+  $("#countUmeRunning").textContent = scoped.filter((d) => d.ume?.running).length;
+  $("#countIvisionRunning").textContent = scoped.filter((d) => d.ivisionRunning).length;
+  const umeVersions = [...new Set(scoped.map((d) => d.ume?.version).filter(Boolean))];
   $("#countUmeVersion").textContent = umeVersions.length ? `버전 ${umeVersions.slice(0, 2).join(", ")}${umeVersions.length > 2 ? ` 외 ${umeVersions.length - 2}` : ""}` : "감지된 버전 없음";
   $("#deviceRows").replaceChildren(...visible.map(deviceRow));
   $("#emptyState").hidden = visible.length > 0;
@@ -218,6 +220,7 @@ async function loadSystemStatus() {
 
 async function loadEnrollmentInfo() {
   regionInfo = await api("/api/regions");
+  ["dashboardRegionFilter", "deviceRegionFilter", "scheduleRegionFilter"].forEach((id) => { const select = $(`#${id}`); if (!select) return; select.replaceChildren(new Option("전체 지역", "all"), ...regionInfo.regions.map((region) => new Option(region.name, region.id))); select.value = selectedRegionId; });
   $("#agentServerUrl").value = regionInfo.serverBaseUrl;
   renderRegionKeys();
 }
@@ -313,13 +316,14 @@ function renderSchedules() {
     const empty = textElement("section", "panel empty-card", "등록된 스케줄이 없습니다. ‘스케줄 추가’로 시작하세요.");
     list.replaceChildren(empty); return;
   }
-  list.replaceChildren(...schedules.map((schedule) => {
+  const visibleSchedules = schedules.filter((schedule) => selectedRegionId === "all" || schedule.regionIds?.includes(selectedRegionId));
+  list.replaceChildren(...visibleSchedules.map((schedule) => {
     const card = document.createElement("article");
     card.className = `schedule-card${schedule.enabled ? "" : " disabled"}`;
     const top = document.createElement("div");
     top.className = "schedule-top";
     const copy = document.createElement("div");
-    copy.append(textElement("span", "schedule-state", schedule.enabled ? "사용 중" : "중지됨"), textElement("h3", "", schedule.name));
+    copy.append(textElement("span", "schedule-state", schedule.enabled ? "사용 중" : "중지됨"), textElement("h3", "", schedule.name), textElement("p", "schedule-regions", schedule.regionNames?.length ? schedule.regionNames.join(" · ") : "전체 지역"));
     const edit = textElement("button", "icon-button", "•••");
     edit.setAttribute("aria-label", `${schedule.name} 수정`);
     edit.addEventListener("click", () => openSchedule(schedule));
@@ -361,6 +365,9 @@ function openSchedule(schedule = null) {
   $("#scheduleName").value = schedule?.name || "";
   $("#scheduleTime").value = schedule?.localTime || "09:00";
   $("#scheduleEnabled").checked = schedule?.enabled ?? true;
+  let regionBox = $("#scheduleRegions");
+  if (!regionBox) { regionBox = document.createElement("div"); regionBox.id = "scheduleRegions"; regionBox.className = "day-picker region-picker"; $("#scheduleForm").prepend(regionBox); }
+  regionBox.replaceChildren(...regionInfo.regions.map((region) => { const label = document.createElement("label"); const input = document.createElement("input"); input.type = "checkbox"; input.name = "scheduleRegion"; input.value = region.id; input.checked = schedule?.regionIds?.includes(region.id) ?? true; label.append(input, region.name); return label; }));
   $$('input[name="day"]').forEach((input) => { input.checked = schedule ? schedule.days.includes(Number(input.value)) : [1, 2, 3, 4, 5].includes(Number(input.value)); });
   $("#scheduleDialog").showModal();
 }
@@ -453,6 +460,9 @@ $("#logoutButton").addEventListener("click", async () => {
   await api("/api/auth/logout", { method: "POST" }); csrfToken = ""; appView.hidden = true; loginView.hidden = false; $("#username").focus();
 });
 $("#refreshButton").addEventListener("click", () => loadDevices().then(() => toast("최신 상태로 갱신했습니다.")).catch(handleError));
+$("#dashboardRegionFilter")?.addEventListener("change", (event) => { selectedRegionId = event.target.value; renderDevices(); });
+$("#deviceRegionFilter")?.addEventListener("change", (event) => { selectedRegionId = event.target.value; renderDevices(); });
+$("#scheduleRegionFilter")?.addEventListener("change", (event) => { selectedRegionId = event.target.value; renderSchedules(); });
 $("#systemRefreshButton").addEventListener("click", () => Promise.all([loadDevices(), loadSystemStatus()]).then(() => toast("시스템 상태를 갱신했습니다.")).catch(handleError));
 $("#searchInput").addEventListener("input", renderDevices);
 $("#menuButton").addEventListener("click", () => appView.classList.toggle("menu-open"));
@@ -540,7 +550,7 @@ $("#scheduleForm").addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();
   const id = $("#scheduleId").value;
-  const body = JSON.stringify({ name: $("#scheduleName").value, localTime: $("#scheduleTime").value, days: $$('input[name="day"]:checked').map((input) => Number(input.value)), enabled: $("#scheduleEnabled").checked });
+  const body = JSON.stringify({ name: $("#scheduleName").value, localTime: $("#scheduleTime").value, regionIds: $$('input[name="scheduleRegion"]:checked').map((input) => input.value), days: $$('input[name="day"]:checked').map((input) => Number(input.value)), enabled: $("#scheduleEnabled").checked });
   try { await api(id ? `/api/schedules/${id}` : "/api/schedules", { method: id ? "PUT" : "POST", body }); $("#scheduleDialog").close(); await loadSchedules(); toast("스케줄을 저장했습니다."); }
   catch (error) { handleError(error); }
 });

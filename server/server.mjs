@@ -138,6 +138,7 @@ ensureColumn("commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("devices", "region_id", "TEXT");
 ensureColumn("users", "region_id", "TEXT");
 ensureColumn("users", "active", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("schedules", "region_ids_json", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("users", "updated_at", "TEXT");
 db.prepare("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''").run();
 seedDefaultRegion();
@@ -825,8 +826,8 @@ async function handleApi(req, res, url) {
     const schedule = validateSchedule(body);
     const id = crypto.randomUUID();
     const timestamp = now();
-    db.prepare("INSERT INTO schedules (id, name, local_time, days_json, enabled, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, schedule.name, schedule.localTime, JSON.stringify(schedule.days), schedule.enabled ? 1 : 0, session.username, timestamp, timestamp);
+    db.prepare("INSERT INTO schedules (id, name, local_time, days_json, region_ids_json, enabled, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, schedule.name, schedule.localTime, JSON.stringify(schedule.days), JSON.stringify(schedule.regionIds), schedule.enabled ? 1 : 0, session.username, timestamp, timestamp);
     audit(session.username, "schedule.create", id, schedule);
     return json(res, 201, { schedule: listSchedules().find((item) => item.id === id) });
   }
@@ -839,8 +840,8 @@ async function handleApi(req, res, url) {
     const current = db.prepare("SELECT * FROM schedules WHERE id = ?").get(scheduleMatch[1]);
     if (!current) return json(res, 404, { error: "스케줄을 찾을 수 없습니다." });
     const schedule = validateSchedule(await readJson(req));
-    db.prepare("UPDATE schedules SET name = ?, local_time = ?, days_json = ?, enabled = ?, updated_at = ? WHERE id = ?")
-      .run(schedule.name, schedule.localTime, JSON.stringify(schedule.days), schedule.enabled ? 1 : 0, now(), current.id);
+    db.prepare("UPDATE schedules SET name = ?, local_time = ?, days_json = ?, region_ids_json = ?, enabled = ?, updated_at = ? WHERE id = ?")
+      .run(schedule.name, schedule.localTime, JSON.stringify(schedule.days), JSON.stringify(schedule.regionIds), schedule.enabled ? 1 : 0, now(), current.id);
     audit(session.username, "schedule.update", current.id, schedule);
     return json(res, 200, { schedule: listSchedules().find((item) => item.id === current.id) });
   }
@@ -863,7 +864,7 @@ async function handleApi(req, res, url) {
     if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
     const schedule = db.prepare("SELECT * FROM schedules WHERE id = ?").get(scheduleRunMatch[1]);
     if (!schedule) return json(res, 404, { error: "스케줄을 찾을 수 없습니다." });
-    const queued = enqueueUmeActivate(schedule.id, `manual:${crypto.randomUUID()}`, sameRegionOnly(session) ? session.regionId : null);
+    const queued = enqueueUmeActivate(schedule.id, `manual:${crypto.randomUUID()}`, sameRegionOnly(session) ? [session.regionId] : JSON.parse(schedule.region_ids_json || "[]"));
     audit(session.username, "schedule.run", schedule.id, { queued });
     return json(res, 202, { queued });
   }
@@ -1103,19 +1104,22 @@ function validateSchedule(value) {
   if (!name) throw Object.assign(new Error("스케줄명을 입력해 주세요."), { status: 400 });
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(localTime)) throw Object.assign(new Error("실행 시간을 확인해 주세요."), { status: 400 });
   if (!days.length) throw Object.assign(new Error("실행 요일을 하나 이상 선택해 주세요."), { status: 400 });
-  return { name, localTime, days, enabled: value.enabled !== false };
+  const regionIds = [...new Set((Array.isArray(value.regionIds) ? value.regionIds : []).map(String).filter(Boolean))];
+  const validRegions = db.prepare(`SELECT id FROM regions WHERE id IN (${regionIds.length ? regionIds.map(() => "?").join(",") : "NULL"})`).all(...regionIds).map((row) => row.id);
+  return { name, localTime, days, regionIds: validRegions, enabled: value.enabled !== false };
 }
 
 function listSchedules() {
   return db.prepare("SELECT * FROM schedules ORDER BY local_time, name COLLATE NOCASE").all().map((item) => ({
-    id: item.id, name: item.name, localTime: item.local_time, days: JSON.parse(item.days_json),
+    id: item.id, name: item.name, localTime: item.local_time, days: JSON.parse(item.days_json), regionIds: JSON.parse(item.region_ids_json || "[]"),
+    regionNames: JSON.parse(item.region_ids_json || "[]").map((id) => db.prepare("SELECT name FROM regions WHERE id = ?").get(id)?.name).filter(Boolean),
     enabled: Boolean(item.enabled), createdBy: item.created_by, createdAt: item.created_at, updatedAt: item.updated_at,
   }));
 }
 
-function enqueueUmeActivate(scheduleId, runKey, regionId = null) {
-  const devices = regionId
-    ? db.prepare("SELECT id FROM devices WHERE approved = 1 AND region_id = ?").all(regionId)
+function enqueueUmeActivate(scheduleId, runKey, regionIds = []) {
+  const devices = regionIds?.length
+    ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND region_id IN (${regionIds.map(() => "?").join(",")})`).all(...regionIds)
     : db.prepare("SELECT id FROM devices WHERE approved = 1").all();
   const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'ume.activate', ?, ?)");
   const timestamp = now();
@@ -1138,7 +1142,7 @@ function runDueSchedules() {
     const runKey = `${clock.date}:${clock.time}`;
     try {
       db.prepare("INSERT INTO schedule_runs (schedule_id, run_key, created_at) VALUES (?, ?, ?)").run(schedule.id, runKey, now());
-      enqueueUmeActivate(schedule.id, runKey);
+      enqueueUmeActivate(schedule.id, runKey, schedule.regionIds);
     } catch (error) {
       if (!String(error.message).includes("UNIQUE constraint failed")) console.error(error);
     }

@@ -48,7 +48,7 @@
         </header>
 
         <section class="page active" data-page="dashboard">
-          <div class="hero-copy"><div><h2>에이전트 운영 상태</h2><p>장비 연결 상태와 UME/i-vision 실행 상태를 분리해서 확인합니다.</p></div><p id="updatedAt" class="muted"></p></div>
+          <div class="hero-copy"><div><h2>에이전트 운영 상태</h2><p>장비 연결 상태와 UME/i-vision 실행 상태를 분리해서 확인합니다.</p></div><select id="dashboardRegionFilter" class="region-filter" aria-label="대시보드 지역 필터"></select><p id="updatedAt" class="muted"></p></div>
           <section class="summary" aria-label="장비 현황">
             <article class="total"><span>등록 장비</span><strong id="countTotal">0</strong><small id="countApproved">승인 0 · 대기 0</small></article>
             <article><span><i class="dot online"></i>Agent 온라인</span><strong id="countOnline">0</strong><small>90초 이내 Heartbeat</small></article>
@@ -74,7 +74,7 @@
         </section>
 
         <section class="page" data-page="devices" hidden>
-          <div class="page-actions"><div><h2>장비 관리</h2><p>장비 승인, 이름 수정, 즉시 상태 확인을 관리합니다.</p></div><input id="searchInput" type="search" placeholder="장비명 또는 ID 검색" aria-label="장비 검색"></div>
+          <div class="page-actions"><div><h2>장비 관리</h2><p>장비 승인, 이름 수정, 즉시 상태 확인을 관리합니다.</p></div><div class="page-filters"><select id="deviceRegionFilter" class="region-filter" aria-label="장비 지역 필터"></select><input id="searchInput" type="search" placeholder="장비명 또는 ID 검색" aria-label="장비 검색"></div></div>
           <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>상태</th><th>지역</th><th>장비명</th><th>Device ID</th><th>Agent</th><th>UME</th><th>i-vision</th><th>마지막 응답</th><th>관리</th></tr></thead><tbody id="deviceRows"></tbody></table></div><p id="emptyState" class="empty">등록된 장비가 없습니다.</p></section>
         </section>
 
@@ -85,7 +85,7 @@
         </section>
 
         <section class="page" data-page="schedules" hidden>
-          <div class="page-actions"><div><h2>화상회의 스케줄 실행</h2><p>대한민국 시간 기준으로 승인된 모든 장비에 화상회의 실행 명령을 보냅니다.</p></div><button id="addScheduleButton">스케줄 추가</button></div>
+          <div class="page-actions"><div><h2>화상회의 스케줄 실행</h2><p>대한민국 시간 기준으로 승인된 장비에 화상회의 실행 명령을 보냅니다.</p></div><div class="page-filters"><select id="scheduleRegionFilter" class="region-filter" aria-label="스케줄 지역 필터"></select><button id="addScheduleButton">스케줄 추가</button></div></div>
           <section class="panel bulk-display-panel"><div><p class="eyebrow">ONLINE DISPLAYS</p><h3>전체 장비 TV 제어</h3><p>현재 온라인인 승인 장비에 즉시 명령을 전송합니다.</p></div><div id="bulkDisplayActions" class="bulk-display-actions"><button class="secondary" data-bulk-display="power" data-value="on">전원 ON</button><button class="secondary" data-bulk-display="power" data-value="off">전원 OFF</button><button class="secondary" data-bulk-display="input" data-value="HDMI1">HDMI1</button><button class="secondary" data-bulk-display="input" data-value="HDMI2">HDMI2</button><button class="secondary" data-bulk-ivision="stop">i-Vision 종료</button><button class="secondary" data-bulk-ivision="restart">i-Vision 재실행</button></div></section>
           <div id="scheduleList" class="card-grid"></div>
         </section>
