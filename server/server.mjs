@@ -426,7 +426,7 @@ function deviceDto(row) {
     machineName: row.machine_name,
     approved: Boolean(row.approved),
     status: statusFor(row.last_seen_at),
-    agentVersion: row.agent_version,
+    agentVersion: String(row.agent_version || "").split("+")[0] || null,
     ume: {
       name: row.ume_name,
       version: row.ume_version,
