@@ -29,6 +29,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                     "display.power" => await DisplayPowerAsync(command, cancellationToken),
                     "display.input" => await DisplayInputAsync(command, cancellationToken),
                     "display.volume" => await DisplayVolumeAsync(command, cancellationToken),
+                    "display.status" => await DisplayStatusAsync(cancellationToken),
                     _ => throw new InvalidOperationException("지원하지 않는 명령입니다."),
                 };
                 await apiClient.CompleteCommandAsync(command.Id, true, result, cancellationToken);
@@ -48,6 +49,8 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     { await using var client = CreateDisplayClient(); var input = command.Payload.GetProperty("input").GetString() switch { "HDMI1" => SamsungInput.Hdmi1, "HDMI2" => SamsungInput.Hdmi2, _ => throw new InvalidOperationException("input은 HDMI1 또는 HDMI2여야 합니다.") }; await client.SetInputAsync(input, ct); return new { input = input.ToString() }; }
     private async Task<object> DisplayVolumeAsync(AgentApiClient.AgentCommand command, CancellationToken ct)
     { await using var client = CreateDisplayClient(); var value = command.Payload.GetProperty("value").GetInt32(); await client.SetVolumeAsync(value, ct); return new { volume = value }; }
+    private async Task<object> DisplayStatusAsync(CancellationToken ct)
+    { await using var client = CreateDisplayClient(); var power = await client.GetPowerAsync(ct); var input = await client.GetInputAsync(ct); var volume = await client.GetVolumeAsync(ct); return new { power = power == SamsungPowerState.On ? "on" : "off", input = input == SamsungInput.Hdmi1 ? "HDMI1" : "HDMI2", volume, connection = "connected" }; }
     private SamsungMdcClient CreateDisplayClient()
     { if (!_settings.Display.Enabled || string.IsNullOrWhiteSpace(_settings.Display.Port)) throw new DisplayControlException(DisplayErrorCode.PortNotFound, "Samsung display is not enabled or port is not configured."); var transport = new WindowsSerialTransportFactory().Create(SerialPortConfiguration.ForSamsungMdc(_settings.Display.Port)); return new SamsungMdcClient(transport); }
 

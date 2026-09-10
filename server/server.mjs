@@ -402,6 +402,10 @@ function statusFor(lastSeenAt) {
 function deviceDto(row) {
   let displayEnabled = false;
   try { displayEnabled = Boolean(JSON.parse(row.last_health_json || "{}").display?.enabled); } catch {}
+  const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
+  let displayConnection = displayEnabled ? "미확인" : "비활성화";
+  if (displayCheck?.status === "completed") displayConnection = "정상";
+  else if (displayCheck?.status === "failed") displayConnection = "연결 실패";
   return {
     id: row.id,
     installationId: row.installation_id,
@@ -423,6 +427,8 @@ function deviceDto(row) {
     foregroundApp: row.foreground_app,
     lastSeenAt: row.last_seen_at,
     displayEnabled,
+    displayConnection,
+    displayCheckedAt: displayCheck?.completed_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -884,7 +890,7 @@ async function handleApi(req, res, url) {
     return json(res, 200, { deleted: true });
   }
 
-  const displayCommandMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/display\/(power|input|volume)$/i);
+  const displayCommandMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/display\/(power|input|volume|status)$/i);
   if (req.method === "POST" && displayCommandMatch) {
     const session = requireAdmin(req, res, true);
     if (!session) return;
@@ -895,8 +901,14 @@ async function handleApi(req, res, url) {
     if (!device.approved) return json(res, 400, { error: "승인된 장비만 제어할 수 있습니다." });
     const healthRow = db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(device.id);
     try { if (!JSON.parse(healthRow?.last_health_json || "{}").display?.enabled) return json(res, 409, { error: "이 장비는 TV 제어가 비활성화되어 있습니다." }); } catch { return json(res, 409, { error: "장비의 TV 제어 설정을 확인할 수 없습니다." }); }
-    const body = await readJson(req);
     const kind = displayCommandMatch[2].toLowerCase();
+    if (kind === "status") {
+      const commandId = crypto.randomUUID();
+      db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'display.status', '{}', ?)").run(commandId, device.id, now());
+      audit(session.username, "display.status", device.id, { commandId });
+      return json(res, 202, { commandId, status: "pending" });
+    }
+    const body = await readJson(req);
     let payload;
     if (kind === "power") {
       if (typeof body.on !== "boolean") return json(res, 400, { error: "on은 boolean이어야 합니다." });
@@ -929,7 +941,7 @@ async function handleApi(req, res, url) {
     let display = health.display || null;
     const latest = db.prepare("SELECT type, result_json FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status = 'completed' ORDER BY completed_at DESC").all(device.id);
     if (!display) display = {};
-    for (const item of latest) { try { const value = JSON.parse(item.result_json || "{}").result || {}; if (item.type === "display.power" && display.power === undefined) display.power = value.power; if (item.type === "display.input" && display.input === undefined) display.input = value.input; if (item.type === "display.volume" && display.volume === undefined) display.volume = value.volume; } catch {} }
+    for (const item of latest) { try { const result = JSON.parse(item.result_json || "{}"); const value = result.result || {}; if (item.type === "display.status" && result.success) display = { ...display, ...value, connection: "connected" }; if (item.type === "display.power" && display.power === undefined) display.power = value.power; if (item.type === "display.input" && display.input === undefined) display.input = value.input; if (item.type === "display.volume" && display.volume === undefined) display.volume = value.volume; } catch {} }
     if (!Object.keys(display).length) display = null;
     return json(res, 200, { display, lastSeenAt: device.last_seen_at, online: device.status === "online" });
   }
@@ -1022,6 +1034,8 @@ async function handleApi(req, res, url) {
     const commandId = crypto.randomUUID();
     db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'health.probe', '{}', ?)")
       .run(commandId, device.id, now());
+    const health = db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(device.id);
+    try { if (JSON.parse(health?.last_health_json || "{}").display?.enabled) db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'display.status', '{}', ?)").run(crypto.randomUUID(), device.id, now()); } catch {}
     audit(session.username, "health.probe", device.id, { commandId });
     return json(res, 202, { commandId, status: "pending" });
   }
