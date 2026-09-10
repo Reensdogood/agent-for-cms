@@ -71,8 +71,8 @@ internal static class Program
         using var mutex = new Mutex(true, @"Local\funnet-gwanak-agent", out var isFirstInstance);
         if (!isFirstInstance)
         {
-            MessageBox.Show("funnet-gwanak-agent가 이미 실행 중입니다.", "Funnet 관악 Agent",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            // 자동 시작과 수동 실행이 겹쳐도 사용자 화면을 가로채지 않는다.
+            // 기존 인스턴스가 계속 트레이에서 동작하므로 중복 실행 요청만 조용히 종료한다.
             return;
         }
 
