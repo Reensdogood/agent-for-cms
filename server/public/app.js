@@ -516,6 +516,15 @@ $$('[data-bulk-display]').forEach((button) => button.addEventListener("click", a
   } catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; }
 }));
+$$('[data-bulk-ivision]').forEach((button) => button.addEventListener("click", async () => {
+  const action = button.dataset.bulkIvision;
+  const label = action === "stop" ? "종료" : "재실행";
+  if (!await confirmAction(`온라인 장비 전체의 i-Vision을 ${label}할까요?`, "현재 온라인인 승인 장비에만 전송됩니다.", label)) return;
+  button.disabled = true;
+  try { const result = await api(`/api/ivision/bulk/${action}`, { method: "POST", body: "{}" }); toast(`${result.queued}대의 온라인 장비에 i-Vision ${label} 명령을 전송했습니다.`); }
+  catch (error) { toast(error.message, "error"); }
+  finally { button.disabled = false; }
+}));
 $("#scheduleForm").addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();
