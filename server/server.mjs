@@ -421,6 +421,10 @@ function humanizeOsVersion(value) {
   return `Windows · 빌드 ${build}`;
 }
 
+function clearPendingDisplayCommands(deviceId) {
+  return Number(db.prepare("DELETE FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status IN ('pending','delivered')").run(deviceId).changes || 0);
+}
+
 function deviceDto(row) {
   let displayEnabled = false;
   let osVersion = null;
@@ -946,6 +950,7 @@ async function handleApi(req, res, url) {
     try { if (!JSON.parse(healthRow?.last_health_json || "{}").display?.enabled) return json(res, 409, { error: "이 장비는 TV 제어가 비활성화되어 있습니다." }); } catch { return json(res, 409, { error: "장비의 TV 제어 설정을 확인할 수 없습니다." }); }
     const kind = displayCommandMatch[2].toLowerCase();
     if (kind === "status") {
+      clearPendingDisplayCommands(device.id);
       const commandId = crypto.randomUUID();
       db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'display.status', '{}', ?)").run(commandId, device.id, now());
       audit(session.username, "display.status", device.id, { commandId });
@@ -966,6 +971,7 @@ async function handleApi(req, res, url) {
       payload = { value };
     }
     const commandId = crypto.randomUUID();
+    clearPendingDisplayCommands(device.id);
     db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)")
       .run(commandId, device.id, `display.${kind}`, JSON.stringify(payload), now());
     audit(session.username, `display.${kind}`, device.id, { commandId, payload });
@@ -1004,7 +1010,7 @@ async function handleApi(req, res, url) {
     const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND status = 'online'${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND status = 'online'${scope}`).all(...args);
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
     const enabledRows = rows.filter((row) => { try { return Boolean(JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(row.id)?.last_health_json || "{}").display?.enabled); } catch { return false; } });
-    const commandIds = enabledRows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, `display.${kind}`, JSON.stringify(payload), now()); return { deviceId: row.id, commandId: id }; });
+    const commandIds = enabledRows.map((row) => { clearPendingDisplayCommands(row.id); const id = crypto.randomUUID(); insert.run(id, row.id, `display.${kind}`, JSON.stringify(payload), now()); return { deviceId: row.id, commandId: id }; });
     audit(session.username, `display.bulk.${kind}`, "ALL", { payload, queued: commandIds.length });
     return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
   }
