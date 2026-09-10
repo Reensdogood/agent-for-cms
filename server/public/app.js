@@ -372,10 +372,10 @@ function renderReleases() {
   list.replaceChildren(...visibleReleases.map((release) => {
     const card = document.createElement("article");
     card.className = "release-card panel";
-    const icon = textElement("div", "package-icon", "UME");
+    const isAgent = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.fileName);
+    const icon = textElement("div", `package-icon ${isAgent ? "agent-icon" : "ume-icon"}`, isAgent ? "Agent" : "UME");
     const info = document.createElement("div");
     info.className = "release-info";
-    const isAgent = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.fileName);
     info.append(textElement("h3", "", `${isAgent ? "Agent" : "UME"} ${release.version}`), textElement("p", "", `${release.fileName} · ${formatBytes(release.sizeBytes)}`), textElement("code", "hash", `SHA-256 ${release.sha256}`), textElement("small", "", `${release.createdBy} · ${formatTime(release.createdAt)}`));
     const distribute = textElement("button", "", "전체 장비에 배포");
     distribute.addEventListener("click", async () => {
@@ -385,7 +385,10 @@ function renderReleases() {
       catch (error) { toast(error.message, "error"); }
       finally { distribute.disabled = false; }
     });
-    card.append(icon, info, distribute); return card;
+    const remove = textElement("button", "small danger", "삭제");
+    remove.addEventListener("click", async () => { if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version} 파일을 삭제할까요?`, "배포 대기 중인 파일은 삭제할 수 없습니다.", "삭제")) return; try { await api(`/api/releases/${release.id}`, { method: "DELETE" }); await loadReleases(); toast("업데이트 파일을 삭제했습니다."); } catch (error) { toast(error.message, "error"); } });
+    const actions = textElement("div", "release-actions", ""); actions.append(distribute, remove);
+    card.append(icon, info, actions); return card;
   }));
 }
 
@@ -542,14 +545,14 @@ $("#scheduleForm").addEventListener("submit", async (event) => {
   catch (error) { handleError(error); }
 });
 
-$("#releaseFile").addEventListener("change", () => { $("#uploadReleaseButton").disabled = !$("#releaseFile").files.length; });
+$("#releaseFile").addEventListener("change", () => { const file = $("#releaseFile").files[0]; $("#uploadReleaseButton").disabled = !file; $("#selectedReleaseFile").textContent = file ? `선택 파일: ${file.name}` : "선택된 파일 없음"; });
 $("#uploadReleaseButton").addEventListener("click", async () => {
   const file = $("#releaseFile").files[0]; if (!file) return;
   const button = $("#uploadReleaseButton"); const progress = $("#uploadProgress");
   button.disabled = true; button.textContent = "업로드 중…"; progress.hidden = false; progress.removeAttribute("value");
   try {
     await api("/api/releases/upload", { method: "POST", headers: { "X-File-Name": encodeURIComponent(file.name) }, body: file });
-    $("#releaseFile").value = ""; await loadReleases(); toast("UME 설치파일을 등록했습니다.");
+    $("#releaseFile").value = ""; $("#selectedReleaseFile").textContent = "선택된 파일 없음"; await loadReleases(); toast("업데이트 파일을 등록했습니다.");
   } catch (error) { handleError(error); }
   finally { button.disabled = false; button.textContent = "업로드"; progress.hidden = true; progress.value = 0; }
 });

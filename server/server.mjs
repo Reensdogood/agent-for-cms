@@ -868,6 +868,21 @@ async function handleApi(req, res, url) {
     return json(res, 202, { queued });
   }
 
+  const releaseDeleteMatch = url.pathname.match(/^\/api\/releases\/([a-f0-9-]+)$/i);
+  if (req.method === "DELETE" && releaseDeleteMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
+    const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseDeleteMatch[1]);
+    if (!release) return json(res, 404, { error: "업데이트 파일을 찾을 수 없습니다." });
+    const pending = db.prepare("SELECT COUNT(*) AS count FROM commands WHERE type IN ('agent.package.download','ume.package.download') AND status = 'pending' AND payload_json LIKE ?").get(`%${release.id}%`);
+    if (Number(pending?.count || 0) > 0) return json(res, 409, { error: "배포 대기 중인 업데이트는 삭제할 수 없습니다." });
+    db.prepare("DELETE FROM releases WHERE id = ?").run(release.id);
+    try { if (fs.existsSync(release.file_path)) fs.unlinkSync(release.file_path); } catch (error) { console.error(error); }
+    audit(session.username, "release.delete", release.id, { version: release.version, fileName: release.file_name });
+    return json(res, 200, { deleted: true });
+  }
+
   const displayCommandMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/display\/(power|input|volume)$/i);
   if (req.method === "POST" && displayCommandMatch) {
     const session = requireAdmin(req, res, true);
