@@ -411,13 +411,15 @@ function compareReleaseVersions(left, right) {
 
 function deviceDto(row) {
   let displayEnabled = false;
-  try { displayEnabled = Boolean(JSON.parse(row.last_health_json || "{}").display?.enabled); } catch {}
+  let osVersion = null;
+  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); osVersion = health.osVersion || null; } catch {}
   const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
   if (displayCheck?.status === "completed") displayConnection = "정상";
   else if (displayCheck?.status === "failed") displayConnection = "연결 실패";
   return {
     id: row.id,
+    osVersion,
     installationId: row.installation_id,
     regionId: row.region_id,
     regionName: row.region_name || "미지정",

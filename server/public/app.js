@@ -132,7 +132,7 @@ function deviceRow(device) {
   status.append(badge);
   if (!device.approved) status.append(textElement("small", "pending-label", "승인 대기"));
   row.append(status, tableCell(device.regionName || "-", "region-name"), tableCell(device.displayName, "device-name"), tableCell(device.id, "mono"),
-    tableCell(device.agentVersion || "-"),
+    tableCell(device.osVersion || "-", "os-version"), tableCell(device.agentVersion || "-"),
     tableCell(device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""}` : "미감지"),
     tableCell(device.ivisionRunning ? "실행" : "미실행"), tableCell(device.displayConnection || "미확인", `display-connection ${device.displayConnection === "정상" ? "connected" : device.displayConnection === "연결 실패" ? "failed" : ""}`), tableCell(formatTime(device.lastSeenAt)));
   const actions = document.createElement("td");
