@@ -988,11 +988,12 @@ async function handleApi(req, res, url) {
     let health = {};
     try { health = JSON.parse(device.last_health_json || "{}"); } catch {}
     let display = health.display || null;
-    const latest = db.prepare("SELECT type, result_json FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status = 'completed' ORDER BY completed_at DESC").all(device.id);
+    const latest = db.prepare("SELECT type, result_json, completed_at FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status = 'completed' ORDER BY completed_at DESC").all(device.id);
+    let checkedAt = null;
     if (!display) display = {};
-    for (const item of latest) { try { const result = JSON.parse(item.result_json || "{}"); const value = result.result || {}; if (item.type === "display.status" && result.success) display = { ...display, ...value, connection: "connected" }; if (item.type === "display.power" && display.power === undefined) display.power = value.power; if (item.type === "display.input" && display.input === undefined) display.input = value.input; if (item.type === "display.volume" && display.volume === undefined) display.volume = value.volume; } catch {} }
+    for (const item of latest) { try { const result = JSON.parse(item.result_json || "{}"); const value = result.result || {}; if (item.type === "display.status" && result.success) { display = { ...display, ...value, connection: value.connection || "connected" }; checkedAt ||= item.completed_at; } if (item.type === "display.power" && display.power === undefined) display.power = value.power; if (item.type === "display.input" && display.input === undefined) display.input = value.input; if (item.type === "display.volume" && display.volume === undefined) display.volume = value.volume; } catch {} }
     if (!Object.keys(display).length) display = null;
-    return json(res, 200, { display, lastSeenAt: device.last_seen_at, online: device.status === "online" });
+    return json(res, 200, { display, checkedAt, lastSeenAt: device.last_seen_at, online: Number.isFinite(Date.parse(device.last_seen_at || "")) && Date.now() - Date.parse(device.last_seen_at) < 120000 });
   }
 
   const displayBulkMatch = url.pathname.match(/^\/api\/display\/bulk\/(power|input)$/i);

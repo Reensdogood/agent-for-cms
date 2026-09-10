@@ -46,7 +46,38 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     private async Task<object> DisplayPowerAsync(AgentApiClient.AgentCommand command, CancellationToken ct)
     { await using var client = CreateDisplayClient(); var on = command.Payload.GetProperty("on").GetBoolean(); await client.SetPowerAsync(on ? SamsungPowerState.On : SamsungPowerState.Off, ct); return new { power = on ? "on" : "off" }; }
     private async Task<object> DisplayInputAsync(AgentApiClient.AgentCommand command, CancellationToken ct)
-    { await using var client = CreateDisplayClient(); var input = command.Payload.GetProperty("input").GetString() switch { "HDMI1" => SamsungInput.Hdmi1, "HDMI2" => SamsungInput.Hdmi2, _ => throw new InvalidOperationException("input은 HDMI1 또는 HDMI2여야 합니다.") }; await client.SetInputAsync(input, ct); return new { input = input.ToString() }; }
+    {
+        await using var client = CreateDisplayClient();
+        var input = command.Payload.GetProperty("input").GetString() switch
+        {
+            "HDMI1" => SamsungInput.Hdmi1,
+            "HDMI2" => SamsungInput.Hdmi2,
+            _ => throw new InvalidOperationException("input은 HDMI1 또는 HDMI2여야 합니다.")
+        };
+        try
+        {
+            await client.SetInputAsync(input, ct);
+            return new { input = input.ToString(), verification = "confirmed" };
+        }
+        catch (Exception error) when (error is DisplayControlException)
+        {
+            // 일부 QET 패널은 입력 전환 직후 MDC ACK/검증 응답이 늦다.
+            // 명령이 실제로 적용되었는지 한 번 더 읽어 오래된 상태를 실패로 남기지 않는다.
+            await Task.Delay(500, ct);
+            try
+            {
+                var actual = await client.GetInputAsync(ct);
+                if (actual == input)
+                    return new { input = input.ToString(), verification = "confirmed_after_delayed_response" };
+            }
+            catch (Exception retryError) when (retryError is DisplayControlException)
+            {
+                // 최초 오류를 보존해 서버에 원인을 전달한다.
+            }
+            throw new DisplayControlException(DisplayErrorCode.NoDisplayResponse,
+                $"입력 전환 응답이 지연되었고 {input} 적용 여부를 확인하지 못했습니다. 최초 오류: {error.Message}");
+        }
+    }
     private async Task<object> DisplayVolumeAsync(AgentApiClient.AgentCommand command, CancellationToken ct)
     { await using var client = CreateDisplayClient(); var value = command.Payload.GetProperty("value").GetInt32(); await client.SetVolumeAsync(value, ct); return new { volume = value }; }
     private async Task<object> DisplayStatusAsync(CancellationToken ct)
