@@ -399,6 +399,16 @@ function statusFor(lastSeenAt) {
   return "offline";
 }
 
+function compareReleaseVersions(left, right) {
+  const a = String(left).split(".").map(Number);
+  const b = String(right).split(".").map(Number);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const delta = (a[index] || 0) - (b[index] || 0);
+    if (delta) return delta;
+  }
+  return 0;
+}
+
 function deviceDto(row) {
   let displayEnabled = false;
   try { displayEnabled = Boolean(JSON.parse(row.last_health_json || "{}").display?.enabled); } catch {}
@@ -773,8 +783,21 @@ async function handleApi(req, res, url) {
     const timestamp = now();
     db.prepare("INSERT INTO releases (id, version, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(id, match[2], fileName, destination, saved.size, saved.sha256, session.username, timestamp);
-    audit(session.username, "release.upload", id, { version: match[2], fileName, ...saved });
-    return json(res, 201, { release: { id, version: match[2], fileName, sizeBytes: saved.size, sha256: saved.sha256, createdAt: timestamp } });
+    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(fileName);
+    let removedOlderAgentReleases = 0;
+    if (isAgentRelease) {
+      const older = db.prepare("SELECT id, file_path, version FROM releases WHERE id <> ?").all(id)
+        .filter((item) => compareReleaseVersions(item.version, match[2]) < 0)
+        .filter((item) => /agent/i.test(String(db.prepare("SELECT file_name FROM releases WHERE id = ?").get(item.id)?.file_name || "")));
+      for (const item of older) {
+        db.prepare("DELETE FROM commands WHERE type = 'agent.package.download' AND status IN ('pending','delivered') AND payload_json LIKE ?").run(`%${item.id}%`);
+        db.prepare("DELETE FROM releases WHERE id = ?").run(item.id);
+        try { if (fs.existsSync(item.file_path)) fs.unlinkSync(item.file_path); } catch (error) { console.error(error); }
+        removedOlderAgentReleases += 1;
+      }
+    }
+    audit(session.username, "release.upload", id, { version: match[2], fileName, ...saved, removedOlderAgentReleases });
+    return json(res, 201, { release: { id, version: match[2], fileName, sizeBytes: saved.size, sha256: saved.sha256, createdAt: timestamp }, removedOlderAgentReleases });
   }
 
   const releaseDownloadMatch = url.pathname.match(/^\/api\/agent\/releases\/([a-f0-9-]+)\/download$/i);
