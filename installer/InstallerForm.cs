@@ -9,6 +9,7 @@ namespace Funnet.Gwanak.Agent.Installer;
 internal sealed class InstallerForm : Form
 {
     private const string RunValueName = "funnet-gwanak-agent";
+    private const string ScheduledTaskName = "Funnet Gwanak Agent";
     private readonly TextBox _serverUrl = new() { Text = "https://agent.funnet.kr", PlaceholderText = "https://agent.funnet.kr" };
     private readonly TextBox _enrollmentKey = new() { UseSystemPasswordChar = true, PlaceholderText = "관리자 화면에서 발급한 장비 등록 키" };
     private readonly TextBox _deviceName = new() { Text = Environment.MachineName };
@@ -234,7 +235,7 @@ internal sealed class InstallerForm : Form
             await File.WriteAllTextAsync(Path.Combine(_installDirectory, "agent-settings.json"), JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
             var setupCopy = Path.Combine(_installDirectory, "funnet-gwanak-agent-setup.exe");
             if (!_configureOnly && !string.Equals(Process.GetCurrentProcess().MainModule?.FileName, setupCopy, StringComparison.OrdinalIgnoreCase)) File.Copy(Process.GetCurrentProcess().MainModule?.FileName ?? "", setupCopy, true);
-            using (var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) run.SetValue(RunValueName, $"\"{executable}\"");
+            RegisterElevatedStartup(executable);
             Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = _installDirectory });
             _enrollmentKey.Clear();
             ShowStatus("설치 완료 · Agent가 트레이에서 실행 중입니다.");
@@ -271,6 +272,7 @@ internal sealed class InstallerForm : Form
         try
         {
             using (var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) run.DeleteValue(RunValueName, false);
+            DeleteScheduledStartup();
             StopAgent();
             var executable = Path.Combine(_installDirectory, "funnet-gwanak-agent.exe");
             var settings = Path.Combine(_installDirectory, "agent-settings.json");
@@ -317,6 +319,30 @@ internal sealed class InstallerForm : Form
     {
         var script = $"timeout /t 2 /nobreak >nul & del /f /q \"{executable}\" \"{settings}\"";
         Process.Start(new ProcessStartInfo("cmd.exe", $"/c {script}") { CreateNoWindow = true, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden });
+    }
+
+    private static void RegisterElevatedStartup(string executable)
+    {
+        using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
+            $"/Create /TN \"{ScheduledTaskName}\" /TR \"\\\"{executable}\\\"\" /SC ONLOGON /RL HIGHEST /F")
+        {
+            UseShellExecute = true,
+            Verb = "runas",
+            WindowStyle = ProcessWindowStyle.Hidden,
+        });
+        task?.WaitForExit(15000);
+        if (task is null || task.ExitCode != 0) throw new InvalidOperationException("Agent 관리자 권한 자동 실행 등록에 실패했습니다.");
+    }
+
+    private static void DeleteScheduledStartup()
+    {
+        try
+        {
+            using var task = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Delete /TN \"{ScheduledTaskName}\" /F")
+            { CreateNoWindow = true, UseShellExecute = false });
+            task?.WaitForExit(5000);
+        }
+        catch { }
     }
 
     private void ShowStatus(string message, bool error = false) { _status.Text = message; _status.ForeColor = error ? Color.Firebrick : Color.DimGray; }
