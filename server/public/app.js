@@ -584,6 +584,7 @@ $("#uploadReleaseButton").addEventListener("click", async () => {
 const integrations = {
   ivision: { title: "i-vision Cloud", label: "cloud.myivision.com", url: "https://cloud.myivision.com/" },
   "ume-manager": { title: "UME 관리자", label: "uc01.fun-net.co.kr:8443", url: "https://uc01.fun-net.co.kr:8443/manager/login" },
+  enercare: { title: "Enercare 운영", label: "enercare.co.kr/svc2", url: "https://enercare.co.kr/svc2/" },
 };
 $$('[data-tool]').forEach((button) => button.addEventListener("click", () => {
   $$('[data-tool]').forEach((item) => item.classList.toggle("active", item === button));
