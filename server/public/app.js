@@ -15,7 +15,7 @@ let regionInfo = { serverBaseUrl: "", regions: [] };
 const pageMeta = {
   dashboard: ["OVERVIEW", "장비 현황"], devices: ["DEVICES", "장비 관리"],
   schedules: ["SCHEDULE", "실행 스케줄"], system: ["SYSTEM", "시스템 상태"], releases: ["DISTRIBUTION", "UME 배포"],
-  integrations: ["SERVICES", "외부 관리"], users: ["ACCESS", "사용자 관리"],
+  integrations: ["SERVICES", "운영 관리 페이지"], users: ["ACCESS", "사용자 관리"],
 };
 
 async function api(url, options = {}) {
