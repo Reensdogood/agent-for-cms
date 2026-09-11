@@ -584,11 +584,11 @@ $("#uploadReleaseButton").addEventListener("click", async () => {
 const integrations = {
   ivision: { title: "i-vision Cloud", label: "cloud.myivision.com", url: "https://cloud.myivision.com/" },
   "ume-manager": { title: "UME 관리자", label: "uc01.fun-net.co.kr:8443", url: "https://uc01.fun-net.co.kr:8443/manager/login" },
-  enercare: { title: "Enercare 운영", label: "enercare.co.kr/svc2", url: "https://enercare.co.kr/svc2/" },
+  enercare: { title: "Enercare 운영", label: "enercare.co.kr/svc2", url: "https://enercare.co.kr/svc2/", preview: true },
 };
 $$('[data-tool]').forEach((button) => button.addEventListener("click", () => {
   $$('[data-tool]').forEach((item) => item.classList.toggle("active", item === button));
-  const tool = integrations[button.dataset.tool]; $("#integrationTitle").textContent = tool.title; $("#integrationUrl").textContent = tool.label; $("#integrationFrame").src = tool.url; $("#integrationFallback").href = tool.url;
+  const tool = integrations[button.dataset.tool]; $("#integrationTitle").textContent = tool.title; $("#integrationUrl").textContent = tool.label; $("#integrationFrame").hidden = Boolean(tool.preview); $("#integrationPreview").hidden = !tool.preview; if (!tool.preview) $("#integrationFrame").src = tool.url; $("#integrationFallback").href = tool.url;
 }));
 $$('[data-release-filter]').forEach((button) => button.addEventListener("click", () => {
   releaseFilter = button.dataset.releaseFilter;
