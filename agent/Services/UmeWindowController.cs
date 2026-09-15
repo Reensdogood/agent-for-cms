@@ -29,7 +29,6 @@ internal sealed class UmeWindowController
     private const uint MouseEventFLeftDown = 0x0002;
     private const uint MouseEventFLeftUp = 0x0004;
     private static readonly IntPtr HwndTop = new(0);
-    private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly IntPtr HwndNoTopmost = new(-2);
 
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr state);
@@ -229,10 +228,10 @@ internal sealed class UmeWindowController
         var exStyle = GetLong(window, GwlExStyle) & ~(WsExDlgModalFrame | WsExClientEdge | WsExStaticEdge);
         SetLong(window, GwlStyle, style);
         SetLong(window, GwlExStyle, exStyle);
-        SetWindowPos(window, HwndTopmost, bounds.Left, bounds.Top, bounds.Width, bounds.Height,
+        // 회의창은 전체화면으로만 배치한다. TopMost/반복적인 Foreground 강제는
+        // 사용자의 마우스·키보드 입력을 가로채므로 사용하지 않는다.
+        SetWindowPos(window, HwndNoTopmost, bounds.Left, bounds.Top, bounds.Width, bounds.Height,
             SwpFrameChanged | SwpNoOwnerZOrder | SwpShowWindow);
-        BringWindowToTop(window);
-        SetForegroundWindow(window);
     }
 
     private static bool IsIvisionProcess(Process process) =>
