@@ -8,7 +8,7 @@
 - 사용자 추가, 수정, 삭제, 계정 사용/중지
 - 전체 시스템, 운영, 지역 관리자 권한 관리
 - Apple 스타일의 장비 현황, 장비 관리, 스케줄, UME 배포, 외부 관리 UI
-- Agent 이름: `funnet-gwanak-agent`
+- 사용자 표시 Agent 이름: `funnet-agent` (실행 파일/프로세스 식별자 `funnet-gwanak-agent`는 기존 설치·자동업데이트 호환을 위해 유지)
 - Windows Tray Agent 설치 프로그램
 - 장비 자동 등록, 승인 대기, 장비명 수정
 - 30초 Heartbeat와 관리자 즉시 상태 확인
