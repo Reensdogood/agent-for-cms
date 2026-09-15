@@ -82,7 +82,7 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 
 생성물은 지정한 배포 폴더에 만들어집니다.
 
-- `funnet-gwanak-agent-setup-1.0.0.exe`: Windows Agent 설치 프로그램
+- `funnet-agent-setup-1.0.0.exe`: Windows Agent 설치 프로그램
 - `funnet-gwanak-server-1.0.0.zip`: 서버 배포 패키지
 - `SHA256SUMS.txt`: 배포 파일 해시
 - `agent-settings.example.json`: Agent 설정 예시

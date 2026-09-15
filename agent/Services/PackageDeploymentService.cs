@@ -24,7 +24,7 @@ internal sealed class PackageDeploymentService(AgentApiClient apiClient)
     {
         if (!fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
             (requireSignature && !fileName.StartsWith("UME-release-", StringComparison.OrdinalIgnoreCase)) ||
-            (!requireSignature && !fileName.StartsWith("Funnet.Gwanak.Agent-", StringComparison.OrdinalIgnoreCase) && !fileName.StartsWith("funnet-gwanak-agent-setup-", StringComparison.OrdinalIgnoreCase)) ||
+            (!requireSignature && !fileName.StartsWith("Funnet.Gwanak.Agent-", StringComparison.OrdinalIgnoreCase) && !fileName.StartsWith("funnet-agent-setup-", StringComparison.OrdinalIgnoreCase) && !fileName.StartsWith("funnet-gwanak-agent-setup-", StringComparison.OrdinalIgnoreCase)) ||
             fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             throw new InvalidOperationException("허용되지 않은 UME 배포 파일명입니다.");
 

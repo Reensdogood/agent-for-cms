@@ -5,7 +5,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>funnet-gwanak-agent-setup</AssemblyName>
+    <AssemblyName>funnet-agent-setup</AssemblyName>
     <RootNamespace>Funnet.Gwanak.Agent.Installer</RootNamespace>
     <Version>1.0.0</Version>
     <Product>Funnet Gwanak Agent Installer</Product>

@@ -789,8 +789,8 @@ async function handleApi(req, res, url) {
     if (!session) return;
     if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const fileName = path.basename(decodeURIComponent(String(req.headers["x-file-name"] || "")));
-    const match = /^(UME-release|Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-([0-9]+(?:\.[0-9]+){1,3})(?:\+[^\\/]+)?\.exe$/i.exec(fileName);
-    if (!match) return json(res, 400, { error: "파일명은 UME-release-{버전}.exe 또는 Funnet.Gwanak.Agent-{버전}.exe 형식이어야 합니다." });
+    const match = /^(UME-release|Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-([0-9]+(?:\.[0-9]+){1,3})(?:\+[^\\/]+)?\.exe$/i.exec(fileName);
+    if (!match) return json(res, 400, { error: "파일명은 UME-release-{버전}.exe 또는 funnet-agent-setup-{버전}.exe 형식이어야 합니다." });
     if (db.prepare("SELECT id FROM releases WHERE version = ?").get(match[2])) {
       return json(res, 409, { error: "이미 등록된 UME 버전입니다." });
     }
@@ -801,7 +801,7 @@ async function handleApi(req, res, url) {
     const timestamp = now();
     db.prepare("INSERT INTO releases (id, version, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(id, match[2], fileName, destination, saved.size, saved.sha256, session.username, timestamp);
-    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(fileName);
+    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(fileName);
     let removedOlderAgentReleases = 0;
     if (isAgentRelease) {
       const older = db.prepare("SELECT id, file_path, version FROM releases WHERE id <> ?").all(id)
@@ -847,7 +847,7 @@ async function handleApi(req, res, url) {
     const devices = requestedIds.length
       ? db.prepare(`SELECT id FROM devices WHERE approved = 1${scope} AND id IN (${requestedIds.map(() => "?").join(",")})`).all(...(sameRegionOnly(session) ? [session.regionId] : []), ...requestedIds)
       : db.prepare(`SELECT id FROM devices WHERE approved = 1${scope}`).all(...(sameRegionOnly(session) ? [session.regionId] : []));
-    const commandType = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.file_name) ? "agent.package.download" : "ume.package.download";
+    const commandType = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.file_name) ? "agent.package.download" : "ume.package.download";
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
     const createdAt = now();
     for (const device of devices) insert.run(crypto.randomUUID(), device.id, commandType, JSON.stringify({
@@ -923,7 +923,7 @@ async function handleApi(req, res, url) {
     if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseDeleteMatch[1]);
     if (!release) return json(res, 404, { error: "업데이트 파일을 찾을 수 없습니다." });
-    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.file_name);
+    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.file_name);
     const pending = db.prepare("SELECT COUNT(*) AS count FROM commands WHERE type IN ('agent.package.download','ume.package.download') AND status = 'pending' AND payload_json LIKE ?").get(`%${release.id}%`);
     if (Number(pending?.count || 0) > 0 && !isAgentRelease) return json(res, 409, { error: "UME 배포 대기 중인 업데이트는 삭제할 수 없습니다." });
     let removedCommands = 0;

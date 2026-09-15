@@ -410,12 +410,12 @@ function openSchedule(schedule = null) {
 
 function renderReleases() {
   const list = $("#releaseList");
-  const visibleReleases = releases.filter((release) => releaseFilter === "all" || (releaseFilter === "agent" ? /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.fileName) : !/^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.fileName)));
+  const visibleReleases = releases.filter((release) => releaseFilter === "all" || (releaseFilter === "agent" ? /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.fileName) : !/^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.fileName)));
   if (!visibleReleases.length) { list.replaceChildren(textElement("section", "panel empty-card", "등록된 업데이트 파일이 없습니다.")); return; }
   list.replaceChildren(...visibleReleases.map((release) => {
     const card = document.createElement("article");
     card.className = "release-card panel";
-    const isAgent = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.fileName);
+    const isAgent = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.fileName);
     const icon = textElement("div", `package-icon ${isAgent ? "agent-icon" : "ume-icon"}`, isAgent ? "Agent" : "UME");
     const info = document.createElement("div");
     info.className = "release-info";

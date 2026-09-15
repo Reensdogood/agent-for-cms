@@ -23,8 +23,8 @@ Copy-Item -LiteralPath $agentExe -Destination (Join-Path $payloadDirectory "funn
 dotnet publish (Join-Path $projectRoot "installer\Funnet.Gwanak.Agent.Installer.csproj") -c Release -r win-x64 --self-contained true -p:Version=$Version -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o $installerOutput
 if ($LASTEXITCODE -ne 0) { throw "Installer publish failed." }
 
-$finalInstaller = Join-Path $distRoot "funnet-gwanak-agent-setup-$Version.exe"
-Copy-Item -LiteralPath (Join-Path $installerOutput "funnet-gwanak-agent-setup.exe") -Destination $finalInstaller -Force
+$finalInstaller = Join-Path $distRoot "funnet-agent-setup-$Version.exe"
+Copy-Item -LiteralPath (Join-Path $installerOutput "funnet-agent-setup.exe") -Destination $finalInstaller -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "agent\agent-settings.example.json") -Destination (Join-Path $distRoot "agent-settings.example.json") -Force
 
 $serverStage = Join-Path $distRoot "server-package"
