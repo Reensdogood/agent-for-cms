@@ -15,6 +15,7 @@ let deviceSort = { key: "status", direction: "asc" };
 let users = [];
 let currentSession = null;
 let regionInfo = { serverBaseUrl: "", regions: [] };
+document.querySelector('[data-device-sort="agentVersion"]')?.replaceChildren(document.createTextNode("funnet-agent"));
 
 const pageMeta = {
   dashboard: ["OVERVIEW", "장비 현황"], devices: ["DEVICES", "장비 관리"],
