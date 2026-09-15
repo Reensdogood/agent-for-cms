@@ -148,6 +148,7 @@ function deviceRow(device) {
   status.append(badge);
   if (!device.approved) status.append(textElement("small", "pending-label", "승인 대기"));
   const nameCell = tableCell(device.displayName, "device-name");
+  nameCell.dataset.deviceId = device.id;
   nameCell.title = `Device ID: ${device.id}`;
   nameCell.setAttribute("aria-label", `${device.displayName} (Device ID ${device.id})`);
   row.append(selectCell, status, tableCell(device.regionName || "-", "region-name"), nameCell, tableCell(device.id, "mono"),

@@ -42,6 +42,7 @@ internal sealed class UmeWindowController
     [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr window);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern IntPtr GetLastActivePopup(IntPtr window);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int maxCount);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder className, int maxCount);
@@ -79,7 +80,10 @@ internal sealed class UmeWindowController
             foreach (var hiddenInfo in restoredClientWindows) ShowWindow(hiddenInfo.Handle, SwRestore);
             // 숨은 클라이언트 창을 복원한 경우에는 UME를 새로 호출하지 않는다.
             // UME global은 단일 인스턴스지만 새 호출 시 검은 보조창을 여러 개 만들 수 있다.
-            if (restoredClientWindows.Count == 0)
+            // UME가 프로세스만 남긴 상태에서는 새 인스턴스를 만들지 않는다.
+            // 단일 인스턴스 구현이 새 호출을 무시하거나 빈 창을 여러 개 만드는 것을 방지한다.
+            var umeProcessRunning = Process.GetProcesses().Any(IsUmeProcess);
+            if (restoredClientWindows.Count == 0 && !umeProcessRunning)
             {
                 Process.Start(new ProcessStartInfo(installation.Path)
                 {
@@ -320,6 +324,21 @@ internal sealed class UmeWindowController
     private static bool PromoteUmePopupIfVisible()
     {
         var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
+        // 더보기/카메라/마이크 선택창은 UME가 소유한 모달 팝업으로 생성될 수 있다.
+        // EnumWindows에서 제목이 비어 있거나 자식 UI로 보이는 경우에도
+        // 소유 창의 마지막 활성 팝업을 우선해 회의 본창이 덮지 않도록 한다.
+        foreach (var owner in FindWindows(IsUmeProcess, visibleOnly: true))
+        {
+            var popupHandle = GetLastActivePopup(owner);
+            if (popupHandle == IntPtr.Zero || popupHandle == owner || !IsWindowVisible(popupHandle)) continue;
+            var popupInfo = ToWindowInfo(popupHandle);
+            if (IsAuxiliaryWindow(popupInfo) || IsMeetingWindow(popupInfo)) continue;
+            ShowWindow(popupHandle, SwRestore);
+            SetWindowPos(popupHandle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
+            BringWindowToTop(popupHandle);
+            SetForegroundWindow(popupHandle);
+            return true;
+        }
         var popup = FindWindows(IsUmeProcess, visibleOnly: true)
             .Select(ToWindowInfo)
             .Where(info => !IsMeetingWindow(info) && !IsMainWindowCandidate(info, bounds))

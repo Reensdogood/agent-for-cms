@@ -288,7 +288,7 @@ tbody tr:hover { background: #f8fafc; }
 .role-badge, .active-badge { background: #fff1e8; color: #c2410c; }
 .dot.delayed, .status.delayed i, .status-icon.delayed { background: var(--orange); }
 .device-name { position: relative; cursor: help; }
-.device-name::after { content: "ID 확인"; display: block; margin-top: .12rem; color: #94a3b8; font-size: .58rem; font-weight: 500; opacity: 0; transition: opacity 120ms ease; }
+.device-name::after { content: attr(data-device-id); display: block; margin-top: .12rem; color: #64748b; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .58rem; font-weight: 500; opacity: 0; transition: opacity 120ms ease; }
 .device-name:hover::after, .device-name:focus-visible::after { opacity: 1; }
 table th:nth-child(5), table td:nth-child(5) { display: none; }
 .table-sort { display: block; width: 100%; min-height: 1.7rem; padding: .2rem .45rem; border-radius: .4rem; text-align: left; }
