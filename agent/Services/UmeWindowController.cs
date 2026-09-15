@@ -23,12 +23,15 @@ internal sealed class UmeWindowController
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const uint SwpShowWindow = 0x0040;
+    private const uint SwpHideWindow = 0x0080;
     private const int SwRestore = 9;
     private const int SwHide = 0;
     private const uint InputMouse = 0;
     private const uint MouseEventFLeftDown = 0x0002;
     private const uint MouseEventFLeftUp = 0x0004;
     private static readonly IntPtr HwndTop = new(0);
+    private static readonly IntPtr HwndBottom = new(1);
+    private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly IntPtr HwndNoTopmost = new(-2);
 
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr state);
@@ -41,6 +44,7 @@ internal sealed class UmeWindowController
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int maxCount);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder className, int maxCount);
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] private static extern uint SendInput(uint count, Input[] inputs, int size);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr64(IntPtr window, int index);
@@ -53,10 +57,40 @@ internal sealed class UmeWindowController
     {
         var installation = new UmeDetector().DetectPreferred()
                            ?? throw new InvalidOperationException("설치된 UME를 찾을 수 없습니다.");
-        Process.Start(new ProcessStartInfo(installation.Path) { UseShellExecute = true });
+        // 프로세스가 남아 있어도 창이 사라진 UME가 있을 수 있다. 이 경우
+        // "이미 실행 중"으로 간주해 Start를 건너뛰면 서버 재실행 명령이 무반응이 된다.
+        // 먼저 현재 표시 창을 확인하고, 표시 창이 없을 때만 실행 파일을 다시 호출한다.
+        var existingWindows = FindWindows(IsUmeProcess, visibleOnly: true);
+        if (existingWindows.Count == 0)
+        {
+            // 단일 인스턴스 UME는 프로세스가 남아 있을 때 새 실행 요청을 무시하고
+            // 기존 숨은 창만 유지할 수 있다. 숨은 창을 먼저 복원해 재실행을 유도한다.
+            // UME는 프로세스 하나 안에 툴바/카메라/소켓 알림 등 숨은
+            // 보조창을 다수 만든다. 이를 전부 복원하면 창이 우르르
+            // 나타나므로 실제 클라이언트/회의창만 복원한다.
+            var hiddenCandidates = FindWindows(IsUmeProcess, visibleOnly: false)
+                .Select(ToWindowInfo)
+                .Where(info => IsMeetingWindow(info) || IsMainWindowCandidate(info, Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty))
+                .ToList();
+            var restoredClientWindows = hiddenCandidates.Where(IsMeetingWindow).ToList();
+            var main = hiddenCandidates.Where(info => !IsMeetingWindow(info))
+                .OrderByDescending(info => info.Bounds.Width * info.Bounds.Height).FirstOrDefault();
+            if (main is not null) restoredClientWindows.Add(main);
+            foreach (var hiddenInfo in restoredClientWindows) ShowWindow(hiddenInfo.Handle, SwRestore);
+            // 숨은 클라이언트 창을 복원한 경우에는 UME를 새로 호출하지 않는다.
+            // UME global은 단일 인스턴스지만 새 호출 시 검은 보조창을 여러 개 만들 수 있다.
+            if (restoredClientWindows.Count == 0)
+            {
+                Process.Start(new ProcessStartInfo(installation.Path)
+                {
+                    UseShellExecute = true,
+                    WorkingDirectory = Path.GetDirectoryName(installation.Path) ?? AppContext.BaseDirectory,
+                });
+            }
+        }
 
-        List<WindowInfo> windows = [];
-        for (var attempt = 0; attempt < 24 && windows.Count == 0; attempt++)
+        List<WindowInfo> windows = existingWindows.Select(ToWindowInfo).ToList();
+        for (var attempt = 0; attempt < 120 && windows.Count == 0; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             await Task.Delay(250, cancellationToken);
@@ -78,18 +112,17 @@ internal sealed class UmeWindowController
 
             if (IsMainWindowCandidate(info, bounds))
             {
-                SetWindowPos(window, HwndTop, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoOwnerZOrder | SwpShowWindow);
-                SetWindowPos(window, HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoOwnerZOrder | SwpShowWindow);
+                RestoreNormalClientWindow(window);
                 mainWindowsPrepared++;
             }
         }
         var promotedMeeting = PromoteMeetingWindow(bounds);
-        var target = promotedMeeting
-                     ?? windows.LastOrDefault(info => IsMainWindowCandidate(info, bounds))?.Handle
-                     ?? windows[^1].Handle;
-        BringWindowToTop(target);
-        SetForegroundWindow(target);
-        var acceptClick = await TryClickGreenAcceptButtonAsync(target, bounds, cancellationToken);
+        // 화상회의 본창이 아직 없으면 UME 클라이언트 창을 Foreground로 올리지 않는다.
+        // 대기/로그인 화면은 사용자의 다른 작업을 방해하지 않아야 하며, 회의창이
+        // 실제로 생성된 뒤에만 최상위·참가 버튼 자동 처리를 수행한다.
+        var acceptClick = promotedMeeting is IntPtr meeting
+            ? await TryClickGreenAcceptButtonAsync(meeting, bounds, cancellationToken)
+            : new { attempted = false, clicked = false, method = "deferred-until-meeting", elapsedMs = 0, loginRecoveryClicked = false, reason = "화상회의 창 대기 중" };
         promotedMeeting = PromoteMeetingWindow(bounds);
         return new
         {
@@ -108,26 +141,87 @@ internal sealed class UmeWindowController
     {
         var umeWindows = FindWindows(IsUmeProcess, visibleOnly: true);
         foreach (var window in umeWindows) ShowWindow(window, SwHide);
-        var didWindows = FindWindows(IsIvisionProcess, visibleOnly: true);
+        return RestoreIvision(umeWindows.Count);
+    }
+
+    public bool IsMeetingWindowVisible() => FindWindows(IsUmeProcess, visibleOnly: true)
+        .Select(ToWindowInfo).Any(IsMeetingWindow);
+
+    public object RestoreIvisionOnly()
+    {
+        return RestoreIvision();
+    }
+
+    private static object RestoreIvision(int umeWindowsHidden = 0)
+    {
+        var didWindows = FindWindows(IsIvisionProcess, visibleOnly: false);
         var restored = false;
         if (didWindows.Count > 0)
         {
             var target = didWindows[^1];
+            foreach (var window in didWindows) ShowWindow(window, SwRestore);
             BringWindowToTop(target);
             restored = SetForegroundWindow(target);
         }
-        return new { umeWindowsHidden = umeWindows.Count, iVisionWindowFound = didWindows.Count > 0, iVisionForegroundRequested = restored };
+        else
+        {
+            var defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
+            if (File.Exists(defaultPath))
+            {
+                restored = StartIvisionWithHighestTask(defaultPath);
+            }
+        }
+        return new { umeWindowsHidden, iVisionWindowFound = didWindows.Count > 0, iVisionForegroundRequested = restored, iVisionStarted = didWindows.Count == 0 && restored };
+    }
+
+    private static bool StartIvisionWithHighestTask(string fallbackPath)
+    {
+        try
+        {
+            using var run = Process.Start(new ProcessStartInfo("schtasks.exe", "/Run /TN \"Funnet i-Vision Launcher\"")
+            { CreateNoWindow = true, UseShellExecute = false });
+            run?.WaitForExit(5000);
+            if (run is not null && run.ExitCode == 0) return true;
+        }
+        catch { }
+
+        // 예약 작업이 아직 등록되지 않은 구형 설치에서는 기존 경로를 사용한다.
+        // 설치기 업데이트가 완료되면 이후부터는 UAC 없는 예약 작업 경로가 사용된다.
+        try
+        {
+            Process.Start(new ProcessStartInfo(fallbackPath)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(fallbackPath) ?? AppContext.BaseDirectory,
+            });
+            return true;
+        }
+        catch { return false; }
     }
 
     public bool PrioritizeMeetingWindowIfVisible()
     {
+        // UME 보조창은 종료/숨김하지 않고 백그라운드로만 보낸다.
+        // 강제 숨김은 Yealink Room Connector와 UME 내부 상태를 깨뜨릴 수 있다.
+        SendUmeAuxiliaryWindowsToBackground();
         var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
         if (bounds.IsEmpty) return false;
+        if (PromoteUmePopupIfVisible()) return true;
+        // UME의 더보기/설정/확인 팝업이 열려 있으면 팝업을 현재 입력 창으로
+        // 존중한다. 회의 본창을 다시 Z-order 최상단으로 올리면 팝업이 가려진다.
+        var foreground = GetForegroundWindow();
+        if (foreground != IntPtr.Zero && IsUmeWindow(foreground))
+        {
+            var foregroundInfo = ToWindowInfo(foreground);
+            if (!IsMeetingWindow(foregroundInfo) && !IsMainWindowCandidate(foregroundInfo, bounds)) return true;
+        }
+        RestoreVisibleClientWindows(bounds);
         return PromoteMeetingWindow(bounds) is not null;
     }
 
     public async Task<bool> TryClickForegroundGreenAcceptButtonAsync(CancellationToken cancellationToken)
     {
+        if (PromoteUmePopupIfVisible()) return false;
         var foreground = GetForegroundWindow();
         var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
         if (bounds.IsEmpty) return false;
@@ -194,7 +288,9 @@ internal sealed class UmeWindowController
         GetWindowRect(window, out var rect);
         var text = new StringBuilder(256);
         GetWindowText(window, text, text.Capacity);
-        return new WindowInfo(window, text.ToString(), Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom));
+        var className = new StringBuilder(256);
+        GetClassName(window, className, className.Capacity);
+        return new WindowInfo(window, text.ToString(), className.ToString(), Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom));
     }
 
     private static bool IsMeetingWindow(WindowInfo info) =>
@@ -221,6 +317,62 @@ internal sealed class UmeWindowController
         return meeting.Handle;
     }
 
+    private static bool PromoteUmePopupIfVisible()
+    {
+        var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
+        var popup = FindWindows(IsUmeProcess, visibleOnly: true)
+            .Select(ToWindowInfo)
+            .Where(info => !IsMeetingWindow(info) && !IsMainWindowCandidate(info, bounds))
+            .Where(info => !IsAuxiliaryWindow(info))
+            .Where(info => !string.IsNullOrWhiteSpace(info.Title))
+            .Where(info => !string.Equals(info.Title, "UME global", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(info => info.Bounds.Width * info.Bounds.Height)
+            .FirstOrDefault();
+        if (popup is null) return false;
+        ShowWindow(popup.Handle, SwRestore);
+        SetWindowPos(popup.Handle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
+        BringWindowToTop(popup.Handle);
+        SetForegroundWindow(popup.Handle);
+        return true;
+    }
+
+    private static bool IsAuxiliaryWindow(WindowInfo info)
+    {
+        return info.Title.Equals("Aqua Camera Monitor", StringComparison.OrdinalIgnoreCase)
+                || info.Title.Contains("Camera Monitor", StringComparison.OrdinalIgnoreCase)
+                || info.Title.Equals("WhiteBoardToolBar", StringComparison.OrdinalIgnoreCase)
+                || info.Title.Equals("USBCOMUSBDetect", StringComparison.OrdinalIgnoreCase)
+                || info.ClassName.Equals("Qt5158QWindowToolSaveBits", StringComparison.OrdinalIgnoreCase)
+                || info.ClassName.Equals("CmWin32SocketNotification_59168765", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void SendUmeAuxiliaryWindowsToBackground()
+    {
+        foreach (var info in FindWindows(IsUmeProcess, visibleOnly: true).Select(ToWindowInfo))
+        {
+            if (!IsAuxiliaryWindow(info)) continue;
+            // 창은 살아 있게 두되 포커스·최상위만 제거한다.
+            SetWindowPos(info.Handle, HwndBottom, 0, 0, 0, 0,
+                SwpNoMove | SwpNoSize | SwpNoOwnerZOrder);
+        }
+    }
+
+    private static void RestoreVisibleClientWindows(Rectangle monitorBounds)
+    {
+        foreach (var info in FindWindows(IsUmeProcess, visibleOnly: true).Select(ToWindowInfo))
+            if (!IsMeetingWindow(info) && IsMainWindowCandidate(info, monitorBounds)) RestoreNormalClientWindow(info.Handle);
+    }
+
+    private static void RestoreNormalClientWindow(IntPtr window)
+    {
+        ShowWindow(window, SwRestore);
+        var style = GetLong(window, GwlStyle) | WsCaption | WsThickFrame | WsMinimizeBox | WsMaximizeBox | WsSysMenu;
+        var exStyle = GetLong(window, GwlExStyle) & ~(WsExDlgModalFrame | WsExClientEdge | WsExStaticEdge);
+        SetLong(window, GwlStyle, style);
+        SetLong(window, GwlExStyle, exStyle);
+        SetWindowPos(window, HwndNoTopmost, 0, 0, 0, 0, SwpFrameChanged | SwpNoMove | SwpNoSize | SwpNoOwnerZOrder | SwpShowWindow);
+    }
+
     private static void MakeBorderlessFullscreen(IntPtr window, Rectangle bounds)
     {
         ShowWindow(window, SwRestore);
@@ -228,9 +380,9 @@ internal sealed class UmeWindowController
         var exStyle = GetLong(window, GwlExStyle) & ~(WsExDlgModalFrame | WsExClientEdge | WsExStaticEdge);
         SetLong(window, GwlStyle, style);
         SetLong(window, GwlExStyle, exStyle);
-        // 회의창은 전체화면으로만 배치한다. TopMost/반복적인 Foreground 강제는
-        // 사용자의 마우스·키보드 입력을 가로채므로 사용하지 않는다.
-        SetWindowPos(window, HwndNoTopmost, bounds.Left, bounds.Top, bounds.Width, bounds.Height,
+        // 회의 본창은 전체화면 최상위로 유지하되 Foreground를 강제로 빼앗지 않는다.
+        // UME의 모달/더보기 팝업은 별도 창으로 감지해 watcher가 본창을 재승격하지 않는다.
+        SetWindowPos(window, HwndTopmost, bounds.Left, bounds.Top, bounds.Width, bounds.Height,
             SwpFrameChanged | SwpNoOwnerZOrder | SwpShowWindow);
     }
 
@@ -501,5 +653,5 @@ internal sealed class UmeWindowController
 
     private sealed record GreenButtonCandidate(int CenterX, int CenterY, int Width, int Height, int Score);
     private sealed record GreenButtonTarget(IntPtr Window, string Title, GreenButtonCandidate Candidate);
-    private sealed record WindowInfo(IntPtr Handle, string Title, Rectangle Bounds);
+    private sealed record WindowInfo(IntPtr Handle, string Title, string ClassName, Rectangle Bounds);
 }

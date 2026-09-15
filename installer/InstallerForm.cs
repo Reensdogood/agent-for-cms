@@ -10,6 +10,7 @@ internal sealed class InstallerForm : Form
 {
     private const string RunValueName = "funnet-gwanak-agent";
     private const string ScheduledTaskName = "Funnet Gwanak Agent";
+    private const string IvisionLauncherTaskName = "Funnet i-Vision Launcher";
     private readonly TextBox _serverUrl = new() { Text = "https://agent.funnet.kr", PlaceholderText = "https://agent.funnet.kr" };
     private readonly TextBox _enrollmentKey = new() { UseSystemPasswordChar = true, PlaceholderText = "관리자 화면에서 발급한 등록 지역 키" };
     private readonly TextBox _deviceName = new() { Text = Environment.MachineName };
@@ -245,6 +246,9 @@ internal sealed class InstallerForm : Form
             var setupCopy = Path.Combine(_installDirectory, "funnet-gwanak-agent-setup.exe");
             if (!_configureOnly && !string.Equals(Process.GetCurrentProcess().MainModule?.FileName, setupCopy, StringComparison.OrdinalIgnoreCase)) File.Copy(Process.GetCurrentProcess().MainModule?.FileName ?? "", setupCopy, true);
             RegisterElevatedStartup(executable);
+            // 런처 등록이 취소되어도 Agent 설치 자체는 중단하지 않는다.
+            // 다음 설정/업데이트에서 다시 등록할 수 있고, Agent는 기존 경로로 동작한다.
+            RegisterIvisionLauncher(executable);
             Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = _installDirectory });
             _enrollmentKey.Clear();
             ShowStatus("설치 완료 · Agent가 트레이에서 실행 중입니다.");
@@ -282,6 +286,7 @@ internal sealed class InstallerForm : Form
         {
             using (var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) run.DeleteValue(RunValueName, false);
             DeleteScheduledStartup();
+            DeleteIvisionLauncher();
             StopAgent();
             var executable = Path.Combine(_installDirectory, "funnet-gwanak-agent.exe");
             var settings = Path.Combine(_installDirectory, "agent-settings.json");
@@ -346,6 +351,16 @@ internal sealed class InstallerForm : Form
         if (task is null || task.ExitCode != 0) throw new InvalidOperationException("Agent 관리자 권한 자동 실행 등록에 실패했습니다.");
     }
 
+    private static bool RegisterIvisionLauncher(string executable)
+    {
+        var date = DateTime.Now.Date.AddDays(1).ToString("MM/dd/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
+            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{executable}\\\" --launch-ivision\" /SC ONCE /SD {date} /ST 00:00 /RL HIGHEST /F")
+        { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden });
+        task?.WaitForExit(15000);
+        return task is not null && task.ExitCode == 0;
+    }
+
     private static bool ScheduledTaskExists()
     {
         try
@@ -363,6 +378,17 @@ internal sealed class InstallerForm : Form
         try
         {
             using var task = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Delete /TN \"{ScheduledTaskName}\" /F")
+            { CreateNoWindow = true, UseShellExecute = false });
+            task?.WaitForExit(5000);
+        }
+        catch { }
+    }
+
+    private static void DeleteIvisionLauncher()
+    {
+        try
+        {
+            using var task = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Delete /TN \"{IvisionLauncherTaskName}\" /F")
             { CreateNoWindow = true, UseShellExecute = false });
             task?.WaitForExit(5000);
         }

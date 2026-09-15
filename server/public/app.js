@@ -4,10 +4,14 @@ const loginView = $("#loginView");
 const appView = $("#appView");
 let csrfToken = "";
 let devices = [];
+const selectedDeviceIds = new Set();
 let schedules = [];
 let releases = [];
 let releaseFilter = "all";
 let selectedRegionId = "all";
+let devicePageSize = 10;
+let devicePage = 1;
+let deviceSort = { key: "status", direction: "asc" };
 let users = [];
 let currentSession = null;
 let regionInfo = { serverBaseUrl: "", regions: [] };
@@ -64,6 +68,12 @@ function renderDevices() {
   const query = $("#searchInput").value.trim().toLowerCase();
   const scoped = devices.filter((device) => selectedRegionId === "all" || device.regionId === selectedRegionId);
   const visible = scoped.filter((device) => `${device.displayName} ${device.id} ${device.machineName || ""}`.toLowerCase().includes(query));
+  const rank = { online: 0, delayed: 1, offline: 2 };
+  const value = (d, key) => key === "status" ? (rank[d.status] ?? 9) : key === "regionName" ? (d.regionName || "") : key === "ume" ? (d.ume?.version || "") : key === "ivisionRunning" ? (d.ivisionRunning ? 0 : 1) : (d[key] ?? "");
+  visible.sort((a, b) => { const av = value(a, deviceSort.key), bv = value(b, deviceSort.key); const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv), "ko"); return cmp * deviceSort.direction; });
+  const pageCount = Math.max(1, Math.ceil(visible.length / devicePageSize));
+  devicePage = Math.min(devicePage, pageCount);
+  const pageRows = visible.slice((devicePage - 1) * devicePageSize, devicePage * devicePageSize);
   $("#countTotal").textContent = scoped.length;
   $("#countApproved").textContent = `승인 ${scoped.filter((d) => d.approved).length} · 대기 ${scoped.filter((d) => !d.approved).length}`;
   $("#countOnline").textContent = scoped.filter((d) => d.status === "online").length;
@@ -71,8 +81,9 @@ function renderDevices() {
   $("#countIvisionRunning").textContent = scoped.filter((d) => d.ivisionRunning).length;
   const umeVersions = [...new Set(scoped.map((d) => d.ume?.version).filter(Boolean))];
   $("#countUmeVersion").textContent = umeVersions.length ? `버전 ${umeVersions.slice(0, 2).join(", ")}${umeVersions.length > 2 ? ` 외 ${umeVersions.length - 2}` : ""}` : "감지된 버전 없음";
-  $("#deviceRows").replaceChildren(...visible.map(deviceRow));
+  $("#deviceRows").replaceChildren(...pageRows.map(deviceRow));
   $("#emptyState").hidden = visible.length > 0;
+  renderDevicePagination(pageCount);
   renderBreakdowns();
 
   const attention = devices.filter((device) => device.status !== "online" || !device.approved).slice(0, 6);
@@ -126,12 +137,15 @@ function tableCell(text, className = "") { const cell = textElement("td", classN
 
 function deviceRow(device) {
   const row = document.createElement("tr");
+  const selectCell = document.createElement("td");
+  const select = document.createElement("input"); select.type = "checkbox"; select.className = "device-select"; select.dataset.deviceId = device.id; select.checked = selectedDeviceIds.has(device.id); select.disabled = !device.approved;
+  select.addEventListener("change", () => select.checked ? selectedDeviceIds.add(device.id) : selectedDeviceIds.delete(device.id)); selectCell.append(select);
   const status = document.createElement("td");
   const badge = textElement("span", `status ${device.status}`, statusLabel(device.status));
   badge.prepend(textElement("i", "", ""));
   status.append(badge);
   if (!device.approved) status.append(textElement("small", "pending-label", "승인 대기"));
-  row.append(status, tableCell(device.regionName || "-", "region-name"), tableCell(device.displayName, "device-name"), tableCell(device.id, "mono"),
+  row.append(selectCell, status, tableCell(device.regionName || "-", "region-name"), tableCell(device.displayName, "device-name"), tableCell(device.id, "mono"),
     tableCell(device.osVersion || "-", "os-version"), tableCell(device.agentVersion || "-"),
     tableCell(device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""}` : "미감지"),
     tableCell(device.ivisionRunning ? "실행" : "미실행"), tableCell(device.displayConnection || "미확인", `display-connection ${device.displayConnection === "정상" ? "connected" : device.displayConnection === "연결 실패" ? "failed" : ""}`), tableCell(formatTime(device.lastSeenAt)));
@@ -162,6 +176,9 @@ function deviceRow(device) {
     catch (error) { toast(error.message, "error"); }
     finally { runUme.disabled = !device.approved; }
   });
+  const stopUme = textElement("button", "small secondary", "UME 종료");
+  stopUme.disabled = !device.approved;
+  stopUme.addEventListener("click", async () => { if (!await confirmAction(`${device.displayName}의 UME를 종료할까요?`, "트레이에 남아 있는 UME도 종료 상태로 전환합니다.", "UME 종료")) return; stopUme.disabled = true; try { await api(`/api/devices/${device.id}/ume/stop`, { method: "POST", body: "{}" }); toast(`${device.displayName}에 UME 종료 명령을 보냈습니다.`); setTimeout(loadDevices, 1800); } catch (error) { toast(error.message, "error"); } finally { stopUme.disabled = !device.approved; } });
   const tv = textElement("button", "small secondary", "TV 제어");
   tv.disabled = !device.approved || !device.displayEnabled;
   if (!device.displayEnabled) tv.title = "이 장비는 TV 제어가 비활성화되어 있습니다.";
@@ -174,8 +191,10 @@ function deviceRow(device) {
     dialog.querySelector("#readDisplayStatus").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; try { await api(`/api/devices/${device.id}/display/status`, { method: "POST", body: "{}" }); button.textContent = "조회 중…"; setTimeout(async () => { try { const latest = await api(`/api/devices/${device.id}/display/status`); dialog.querySelector(".tv-live-status").textContent = displayText(latest.display || {}); } catch {} finally { button.disabled = false; button.textContent = "TV 현재 상태 조회"; } }, 1800); } catch (error) { toast(error.message, "error"); button.disabled = false; } });
     const actions = dialog.querySelector(".dialog-actions");
     const commands = [["전원 ON", "power", { on: true }], ["전원 OFF", "power", { on: false }], ["HDMI1", "input", { input: "HDMI1" }], ["HDMI2", "input", { input: "HDMI2" }], ["현재 볼륨 +", "volume", { value: 55 }], ["현재 볼륨 −", "volume", { value: 45 }]];
-    for (const [label, kind, payload] of commands) { const active = (label.includes("ON") && String(current.power).toLowerCase() === "on") || (label.includes("OFF") && String(current.power).toLowerCase() === "off") || (label.toUpperCase() === String(current.input || "").toUpperCase()); const tone = label.startsWith("전원") ? "power-command" : label.startsWith("HDMI") ? "input-command" : "volume-command"; const b = textElement("button", `small primary-soft tv-command ${tone}${active ? " active-display" : ""}`, active ? `✓ ${label}` : label); b.type = "button"; b.addEventListener("click", async () => { b.disabled = true; try { await api(`/api/devices/${device.id}/display/${kind}`, { method: "POST", body: JSON.stringify(payload) }); toast(`${device.displayName}에 ${label} 명령을 보냈습니다.`); dialog.close(); } catch (error) { toast(error.message, "error"); b.disabled = false; } }); actions.append(b); }
-    document.body.append(dialog); dialog.addEventListener("close", () => dialog.remove(), { once: true }); dialog.showModal();
+    let statusTimer;
+    const refreshDialogStatus = async () => { try { const latest = await api(`/api/devices/${device.id}/display/status`); dialog.querySelector(".tv-live-status").textContent = displayText(latest.display || {}); } catch {} };
+    for (const [label, kind, payload] of commands) { const active = (label.includes("ON") && String(current.power).toLowerCase() === "on") || (label.includes("OFF") && String(current.power).toLowerCase() === "off") || (label.toUpperCase() === String(current.input || "").toUpperCase()); const tone = label.startsWith("전원") ? "power-command" : label.startsWith("HDMI") ? "input-command" : "volume-command"; const b = textElement("button", `small primary-soft tv-command ${tone}${active ? " active-display" : ""}`, active ? `✓ ${label}` : label); b.type = "button"; b.addEventListener("click", async () => { b.disabled = true; try { await api(`/api/devices/${device.id}/display/${kind}`, { method: "POST", body: JSON.stringify(payload) }); toast(`${device.displayName}에 ${label} 명령을 보냈습니다.`); setTimeout(refreshDialogStatus, 1200); } catch (error) { toast(error.message, "error"); } finally { b.disabled = false; } }); actions.append(b); }
+    document.body.append(dialog); dialog.addEventListener("close", () => { clearInterval(statusTimer); dialog.remove(); }, { once: true }); dialog.showModal(); statusTimer = setInterval(refreshDialogStatus, 2500);
   });
   actions.append(tv);
   const ivisionStop = textElement("button", "small secondary", "i-vision 종료");
@@ -199,7 +218,7 @@ function deviceRow(device) {
     catch (error) { toast(error.message, "error"); }
     finally { remove.disabled = false; }
   });
-  actions.append(probe, runUme, ivisionStop, ivisionRestart, windowsShutdown, edit, remove);
+  actions.append(probe, runUme, stopUme, ivisionStop, ivisionRestart, windowsShutdown, edit, remove);
   row.append(actions);
   return row;
 }
@@ -209,6 +228,13 @@ async function loadDevices() {
   devices = result.devices;
   $("#updatedAt").textContent = `최근 갱신 ${formatTime(result.serverTime)}`;
   renderDevices();
+}
+
+function renderDevicePagination(pageCount) {
+  const root = $("#devicePagination"); if (!root) return;
+  root.replaceChildren();
+  if (pageCount <= 1) return;
+  for (let page = 1; page <= pageCount; page += 1) { const button = textElement("button", `page-button${page === devicePage ? " active" : ""}`, String(page)); button.type = "button"; button.addEventListener("click", () => { devicePage = page; renderDevices(); }); root.append(button); }
 }
 
 async function loadSystemStatus() {
@@ -465,7 +491,9 @@ $("#logoutButton").addEventListener("click", async () => {
 });
 $("#refreshButton").addEventListener("click", () => loadDevices().then(() => toast("최신 상태로 갱신했습니다.")).catch(handleError));
 $("#dashboardRegionFilter")?.addEventListener("change", (event) => { selectedRegionId = event.target.value; renderDevices(); });
-$("#deviceRegionFilter")?.addEventListener("change", (event) => { selectedRegionId = event.target.value; renderDevices(); });
+$("#deviceRegionFilter")?.addEventListener("change", (event) => { selectedRegionId = event.target.value; devicePage = 1; renderDevices(); });
+$("#devicePageSize")?.addEventListener("change", (event) => { devicePageSize = Number(event.target.value) || 10; devicePage = 1; renderDevices(); });
+$$('[data-device-sort]').forEach((button) => button.addEventListener("click", () => { const key = button.dataset.deviceSort; deviceSort = deviceSort.key === key ? { key, direction: deviceSort.direction * -1 } : { key, direction: 1 }; devicePage = 1; renderDevices(); }));
 $("#scheduleRegionFilter")?.addEventListener("change", (event) => { selectedRegionId = event.target.value; renderSchedules(); });
 $("#systemRefreshButton").addEventListener("click", () => Promise.all([loadDevices(), loadSystemStatus()]).then(() => toast("시스템 상태를 갱신했습니다.")).catch(handleError));
 $("#searchInput").addEventListener("input", renderDevices);
@@ -557,6 +585,23 @@ $$('[data-bulk-windows]').forEach((button) => button.addEventListener("click", a
   try { const deviceIds = devices.filter((device) => device.approved && device.status === "online" && (selectedRegionId === "all" || device.regionId === selectedRegionId)).map((device) => device.id); const result = await api("/api/windows/bulk/shutdown", { method: "POST", body: JSON.stringify({ deviceIds }) }); toast(`${result.queued}대의 장비에 Windows 종료 명령을 전송했습니다.`); }
   catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; }
+}));
+$("#selectAllDevices")?.addEventListener("change", (event) => { $$(".device-select").forEach((box) => { if (!box.disabled) { box.checked = event.currentTarget.checked; box.checked ? selectedDeviceIds.add(box.dataset.deviceId) : selectedDeviceIds.delete(box.dataset.deviceId); } }); });
+$$('[data-device-bulk]').forEach((button) => button.addEventListener("click", async () => {
+  const action = button.dataset.deviceBulk; const ids = [...selectedDeviceIds]; if (!ids.length) { toast("먼저 장비를 선택해 주세요.", "error"); return; }
+  const labels = { "display-status": "TV 상태 확인", "display-on": "TV 전원 ON", "display-off": "TV 전원 OFF", hdmi1: "HDMI1", hdmi2: "HDMI2", ume: "UME 실행", "ume-stop": "UME 종료", "ivision-stop": "I-Vision 종료", "ivision-restart": "I-Vision 재실행", "windows-shutdown": "Windows 종료" };
+  if (!await confirmAction(`선택한 ${ids.length}대에 ${labels[action]} 명령을 보낼까요?`, "온라인 승인 장비에만 전송됩니다.", "전송")) return;
+  button.disabled = true;
+  try {
+    let path, payload = { deviceIds: ids };
+    if (action === "display-status") path = "/api/health/bulk";
+    else if (action === "display-on" || action === "display-off") { path = "/api/display/bulk/power"; payload.on = action === "display-on"; }
+    else if (action === "hdmi1" || action === "hdmi2") { path = "/api/display/bulk/input"; payload.input = action.toUpperCase(); }
+    else if (action === "ume" || action === "ume-stop") { path = "/api/ume/bulk"; if (action === "ume-stop") payload.action = "stop"; }
+    else if (action.startsWith("ivision-")) path = `/api/ivision/bulk/${action.slice(8)}`;
+    else path = "/api/windows/bulk/shutdown";
+    const result = await api(path, { method: "POST", body: JSON.stringify(payload) }); toast(`${result.queued}대에 ${labels[action]} 명령을 전송했습니다.`); if (action === "display-status") setTimeout(loadDevices, 2200);
+  } catch (error) { toast(error.message, "error"); } finally { button.disabled = false; }
 }));
 $("#scheduleForm").addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;

@@ -19,7 +19,10 @@ internal sealed class UmeDetector
             .Select(path => ToInstallation(path, runningPaths))
             .Where(value => value is not null)
             .Cast<UmeInstallation>()
-            .OrderByDescending(value => ParseVersion(value.Version))
+            // 두 제품이 함께 설치된 경우 화상회의/팝업 창을 지원하는
+            // UME global을 우선 사용한다. 일반 UME만 있는 환경은 fallback한다.
+            .OrderByDescending(value => value.Name.Equals("UME global", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(value => ParseVersion(value.Version))
             .ThenBy(value => value.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
         return results;
@@ -77,6 +80,18 @@ internal sealed class UmeDetector
         }
 
         foreach (var folder in folders)
+            CollectExecutables(folder, executablePaths);
+
+        // UME 배포 방식에 따라 레지스트리 Uninstall 항목이 없는 경우가 있다.
+        // 설치 사용자 영역과 일반 프로그램 영역의 후보 경로도 확인해 재실행 시
+        // "설치된 UME를 찾을 수 없습니다"로 명령이 즉시 실패하지 않게 한다.
+        foreach (var folder in new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        }.Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase))
             CollectExecutables(folder, executablePaths);
     }
 

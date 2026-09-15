@@ -175,8 +175,32 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         }
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
-        return new { restarted = true, process = "i-Vision.Player" };
+        EnsureIvisionLauncherTask();
+        using var task = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("schtasks.exe", "/Run /TN \"Funnet i-Vision Launcher\"")
+        { CreateNoWindow = true, UseShellExecute = false });
+        task?.WaitForExit(5000);
+        if (task is null || task.ExitCode != 0)
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
+        return new { restarted = true, process = "i-Vision.Player", elevation = task is not null && task.ExitCode == 0 ? "scheduled-highest" : "direct-fallback" };
+    }
+
+    private static void EnsureIvisionLauncherTask()
+    {
+        try
+        {
+            using var query = Process.Start(new ProcessStartInfo("schtasks.exe", "/Query /TN \"Funnet i-Vision Launcher\"")
+            { CreateNoWindow = true, UseShellExecute = false });
+            query?.WaitForExit(2000);
+            if (query?.ExitCode == 0) return;
+            var executable = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(executable)) return;
+            var date = DateTime.Now.Date.AddDays(1).ToString("yyyy/MM/dd", System.Globalization.CultureInfo.InvariantCulture);
+            using var create = Process.Start(new ProcessStartInfo("schtasks.exe",
+                $"/Create /TN \"Funnet i-Vision Launcher\" /TR \"\\\"{executable}\\\" --launch-ivision\" /SC ONCE /SD {date} /ST 00:00 /RL HIGHEST /F")
+            { CreateNoWindow = true, UseShellExecute = false });
+            create?.WaitForExit(5000);
+        }
+        catch { }
     }
 
     private static object ScheduleWindowsShutdown()

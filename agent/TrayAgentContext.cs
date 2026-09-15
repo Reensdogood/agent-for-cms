@@ -27,6 +27,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         _healthCollector = new HealthCollector(settings, _identity);
         _apiClient = new AgentApiClient(settings, identityStore, _identity);
         _commandExecutor = new AgentCommandExecutor(_apiClient, _healthCollector, _umeController, _settings);
+        _meetingWindowWasVisible = _umeController.IsMeetingWindowVisible();
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem("설정", null, (_, _) => OpenSettings()));
@@ -92,9 +93,11 @@ internal sealed class TrayAgentContext : ApplicationContext
                 else if (_meetingWindowWasVisible)
                 {
                     _meetingWindowWasVisible = false;
-                    var result = _umeController.HideAndRestoreDid();
-                    SetStatus("회의 종료 · i-vision 복귀");
-                    _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
+                    // UME 클라이언트는 유지하고 i-Vision만 복귀시킨다.
+                    // 회의 종료 감지 때문에 UME 전체를 숨기면 이후 트레이 실행이 막힌다.
+                    _umeController.RestoreIvisionOnly();
+                    SetStatus("화상회의 종료 · i-vision 복귀 · UME 클라이언트 유지");
+                    _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "화상회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
                 }
 
                 var clicked = await _umeController.TryClickForegroundGreenAcceptButtonAsync(cancellationToken);

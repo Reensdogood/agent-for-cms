@@ -1011,6 +1011,19 @@ async function handleApi(req, res, url) {
     return json(res, 200, { display, checkedAt, lastSeenAt: device.last_seen_at, online: Number.isFinite(Date.parse(device.last_seen_at || "")) && Date.now() - Date.parse(device.last_seen_at) < 120000 });
   }
 
+  const selectedBulkMatch = url.pathname.match(/^\/api\/(health|ume)\/bulk$/i);
+  if (req.method === "POST" && selectedBulkMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const body = await readJson(req); const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
+    const scope = sameRegionOnly(session) ? " AND region_id = ?" : ""; const args = sameRegionOnly(session) ? [session.regionId] : [];
+    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved=1 AND julianday(last_seen_at)>=julianday('now','-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved=1 AND julianday(last_seen_at)>=julianday('now','-120 seconds')${scope}`).all(...args);
+    const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, '{}', ?)"); const type = selectedBulkMatch[1] === "health" ? "health.probe" : (body.action === "stop" ? "ume.hide" : "ume.activate");
+    const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, type, "{}", now()); if (type === "health.probe") { try { if (JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id=?").get(row.id)?.last_health_json || "{}").display?.enabled) insert.run(crypto.randomUUID(), row.id, "display.status", "{}", now()); } catch {} } return id; });
+    audit(session.username, type + ".bulk", "ALL", { queued: commandIds.length }); return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
+  }
+
   const displayBulkMatch = url.pathname.match(/^\/api\/display\/bulk\/(power|input)$/i);
   if (req.method === "POST" && displayBulkMatch) {
     const session = requireAdmin(req, res, true);
@@ -1138,6 +1151,21 @@ async function handleApi(req, res, url) {
       .run(commandId, device.id, JSON.stringify({ scheduleId, runKey, deviceOnly: true }), now());
     audit(session.username, "device.run_ume", device.id, { commandId, scheduleId, displayName: device.display_name });
     return json(res, 202, { commandId, queued: 1, status: "pending" });
+  }
+
+  const umeStopMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/ume\/stop$/i);
+  if (req.method === "POST" && umeStopMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const device = db.prepare("SELECT id, region_id, approved FROM devices WHERE id = ?").get(umeStopMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 실행할 수 있습니다." });
+    if (!device.approved) return json(res, 400, { error: "승인된 장비만 실행할 수 있습니다." });
+    const commandId = crypto.randomUUID();
+    db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'ume.hide', '{}', ?)").run(commandId, device.id, now());
+    audit(session.username, "device.ume_stop", device.id, { commandId });
+    return json(res, 202, { commandId, status: "pending" });
   }
 
   const ivisionMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/ivision\/(stop|restart)$/i);

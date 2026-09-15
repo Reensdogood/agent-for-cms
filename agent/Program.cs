@@ -52,6 +52,12 @@ internal static class Program
             return;
         }
 
+        if (args.Any(value => string.Equals(value, "--launch-ivision", StringComparison.OrdinalIgnoreCase)))
+        {
+            LaunchIvision();
+            return;
+        }
+
         if (args.Any(value => string.Equals(value, "--once", StringComparison.OrdinalIgnoreCase)))
         {
             var onceSettings = AgentSettings.Load();
@@ -120,5 +126,16 @@ internal static class Program
         }
         catch { }
         return result;
+    }
+
+    private static void LaunchIvision()
+    {
+        const string defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
+        if (!File.Exists(defaultPath)) return;
+        Process.Start(new ProcessStartInfo(defaultPath)
+        {
+            UseShellExecute = true,
+            WorkingDirectory = Path.GetDirectoryName(defaultPath) ?? AppContext.BaseDirectory,
+        });
     }
 }
