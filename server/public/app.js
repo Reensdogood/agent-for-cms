@@ -83,6 +83,7 @@ function renderDevices() {
   const umeVersions = [...new Set(scoped.map((d) => d.ume?.version).filter(Boolean))];
   $("#countUmeVersion").textContent = umeVersions.length ? `버전 ${umeVersions.slice(0, 2).join(", ")}${umeVersions.length > 2 ? ` 외 ${umeVersions.length - 2}` : ""}` : "감지된 버전 없음";
   $("#deviceRows").replaceChildren(...pageRows.map(deviceRow));
+  $$('[data-device-sort]').forEach((button) => button.setAttribute("aria-sort", button.dataset.deviceSort === deviceSort.key ? (deviceSort.direction === 1 ? "ascending" : "descending") : "none"));
   $("#emptyState").hidden = visible.length > 0;
   renderDevicePagination(pageCount);
   renderBreakdowns();
@@ -146,7 +147,10 @@ function deviceRow(device) {
   badge.prepend(textElement("i", "", ""));
   status.append(badge);
   if (!device.approved) status.append(textElement("small", "pending-label", "승인 대기"));
-  row.append(selectCell, status, tableCell(device.regionName || "-", "region-name"), tableCell(device.displayName, "device-name"), tableCell(device.id, "mono"),
+  const nameCell = tableCell(device.displayName, "device-name");
+  nameCell.title = `Device ID: ${device.id}`;
+  nameCell.setAttribute("aria-label", `${device.displayName} (Device ID ${device.id})`);
+  row.append(selectCell, status, tableCell(device.regionName || "-", "region-name"), nameCell, tableCell(device.id, "mono"),
     tableCell(device.osVersion || "-", "os-version"), tableCell(device.agentVersion || "-"),
     tableCell(device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""} · funnet-agent ${device.agentVersion || "-"}` : `미감지 · funnet-agent ${device.agentVersion || "-"}`),
     tableCell(device.ivisionRunning ? "실행" : "미실행"), tableCell(device.displayConnection || "미확인", `display-connection ${device.displayConnection === "정상" ? "connected" : device.displayConnection === "연결 실패" ? "failed" : ""}`), tableCell(formatTime(device.lastSeenAt)));
