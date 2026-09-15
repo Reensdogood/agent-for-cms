@@ -93,10 +93,12 @@ internal sealed class TrayAgentContext : ApplicationContext
                 else if (_meetingWindowWasVisible)
                 {
                     _meetingWindowWasVisible = false;
-                    // UME 클라이언트는 유지하고 i-Vision만 복귀시킨다.
-                    // 회의 종료 감지 때문에 UME 전체를 숨기면 이후 트레이 실행이 막힌다.
+                    // 회의가 끝나면 UME 본창·빈 보조창·트레이 프로세스를 모두
+                    // 종료해 i-Vision을 가리지 않게 한다. 다음 UME 실행 명령에서
+                    // 필요한 UME 프로세스를 새로 시작한다.
+                    _umeController.CloseAllUmeProcesses();
                     _umeController.RestoreIvisionOnly();
-                    SetStatus("화상회의 종료 · i-vision 복귀 · UME 클라이언트 유지");
+                    SetStatus("화상회의 종료 · UME 종료 · i-vision 복귀");
                     _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "화상회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
                 }
 

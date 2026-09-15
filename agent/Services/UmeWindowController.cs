@@ -150,6 +150,43 @@ internal sealed class UmeWindowController
         return RestoreIvision(umeWindows.Count);
     }
 
+    public object CloseAllUmeProcesses()
+    {
+        var stopped = 0;
+        var processes = Process.GetProcesses().Where(IsUmeProcess).ToList();
+        try
+        {
+            // 정상 종료를 먼저 요청해 UME가 세션·트레이 상태를 정리할 시간을 준다.
+            foreach (var process in processes)
+            {
+                try { if (!process.HasExited) process.CloseMainWindow(); } catch { }
+            }
+            foreach (var process in processes)
+            {
+                try
+                {
+                    if (!process.HasExited && process.WaitForExit(900)) stopped++;
+                }
+                catch { }
+            }
+            // 빈 창·보조 프로세스처럼 메인 창이 없는 잔존 프로세스도 정리한다.
+            foreach (var process in Process.GetProcesses().Where(IsUmeProcess).ToList())
+            {
+                try
+                {
+                    if (!process.HasExited) { process.Kill(true); process.WaitForExit(1200); stopped++; }
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+            return new { stopped, remaining = CountUmeProcesses() };
+        }
+        finally
+        {
+            foreach (var process in processes) process.Dispose();
+        }
+    }
+
     public bool IsMeetingWindowVisible() => FindWindows(IsUmeProcess, visibleOnly: true)
         .Select(ToWindowInfo).Any(IsMeetingWindow);
 
@@ -311,6 +348,13 @@ internal sealed class UmeWindowController
         if (meeting is null) return null;
         MakeBorderlessFullscreen(meeting.Handle, bounds);
         return meeting.Handle;
+    }
+
+    private static int CountUmeProcesses()
+    {
+        var processes = Process.GetProcesses();
+        try { return processes.Count(IsUmeProcess); }
+        finally { foreach (var process in processes) process.Dispose(); }
     }
 
     private static bool PromoteUmePopupIfVisible()
