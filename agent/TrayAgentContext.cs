@@ -7,6 +7,7 @@ namespace Funnet.Gwanak.Agent;
 
 internal sealed class TrayAgentContext : ApplicationContext
 {
+    private static readonly string AgentVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "-";
     private readonly AgentSettings _settings;
     private readonly DeviceIdentity _identity;
     private readonly HealthCollector _healthCollector;
@@ -38,7 +39,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         _notifyIcon = new NotifyIcon
         {
             Icon = LoadTrayIcon(),
-            Text = "funnet-gwanak-agent · 시작 중",
+            Text = $"funnet-agent {AgentVersion} · 시작 중",
             ContextMenuStrip = menu,
             Visible = true,
         };
@@ -147,7 +148,7 @@ internal sealed class TrayAgentContext : ApplicationContext
     private void SetStatus(string status)
     {
         _status = status;
-        var text = $"funnet-gwanak-agent · {_status}";
+        var text = $"funnet-agent {AgentVersion} · {_status}";
         if (text.Length > 63) text = text[..63];
         if (_notifyIcon.Text != text) _notifyIcon.Text = text;
     }
