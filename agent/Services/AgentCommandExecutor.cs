@@ -180,8 +180,8 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         { CreateNoWindow = true, UseShellExecute = false });
         task?.WaitForExit(5000);
         if (task is null || task.ExitCode != 0)
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
-        return new { restarted = true, process = "i-Vision.Player", elevation = task is not null && task.ExitCode == 0 ? "scheduled-highest" : "direct-fallback" };
+            throw new InvalidOperationException("i-vision 관리자 권한 실행 예약 작업을 찾거나 실행하지 못했습니다. Agent 설치를 다시 진행해 예약 작업을 등록해 주세요.");
+        return new { restarted = true, process = "i-Vision.Player", elevation = "scheduled-highest" };
     }
 
     private static void EnsureIvisionLauncherTask()

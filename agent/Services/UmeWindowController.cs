@@ -25,6 +25,7 @@ internal sealed class UmeWindowController
     private const uint SwpShowWindow = 0x0040;
     private const uint SwpHideWindow = 0x0080;
     private const int SwRestore = 9;
+    private const int SwMinimize = 6;
     private const int SwHide = 0;
     private const uint InputMouse = 0;
     private const uint MouseEventFLeftDown = 0x0002;
@@ -128,6 +129,7 @@ internal sealed class UmeWindowController
             ? await TryClickGreenAcceptButtonAsync(meeting, bounds, cancellationToken)
             : new { attempted = false, clicked = false, method = "deferred-until-meeting", elapsedMs = 0, loginRecoveryClicked = false, reason = "화상회의 창 대기 중" };
         promotedMeeting = PromoteMeetingWindow(bounds);
+        if (promotedMeeting is null) MinimizeClientWindows(bounds);
         return new
         {
             installation.Name,
@@ -153,6 +155,7 @@ internal sealed class UmeWindowController
 
     public object RestoreIvisionOnly()
     {
+        MinimizeClientWindows(Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty);
         return RestoreIvision();
     }
 
@@ -170,10 +173,7 @@ internal sealed class UmeWindowController
         else
         {
             var defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
-            if (File.Exists(defaultPath))
-            {
-                restored = StartIvisionWithHighestTask(defaultPath);
-            }
+            if (File.Exists(defaultPath)) restored = StartIvisionWithHighestTask(defaultPath);
         }
         return new { umeWindowsHidden, iVisionWindowFound = didWindows.Count > 0, iVisionForegroundRequested = restored, iVisionStarted = didWindows.Count == 0 && restored };
     }
@@ -189,18 +189,10 @@ internal sealed class UmeWindowController
         }
         catch { }
 
-        // 예약 작업이 아직 등록되지 않은 구형 설치에서는 기존 경로를 사용한다.
-        // 설치기 업데이트가 완료되면 이후부터는 UAC 없는 예약 작업 경로가 사용된다.
-        try
-        {
-            Process.Start(new ProcessStartInfo(fallbackPath)
-            {
-                UseShellExecute = true,
-                WorkingDirectory = Path.GetDirectoryName(fallbackPath) ?? AppContext.BaseDirectory,
-            });
-            return true;
-        }
-        catch { return false; }
+        // 직접 실행으로 대체하면 관리자 권한 UAC가 다시 나타난다.
+        // 예약 작업이 없거나 실행에 실패한 경우에는 조용히 실패시켜
+        // 사용자 작업을 가로채지 않고 Agent 로그에 원인을 남긴다.
+        return false;
     }
 
     public bool PrioritizeMeetingWindowIfVisible()
@@ -380,6 +372,16 @@ internal sealed class UmeWindowController
     {
         foreach (var info in FindWindows(IsUmeProcess, visibleOnly: true).Select(ToWindowInfo))
             if (!IsMeetingWindow(info) && IsMainWindowCandidate(info, monitorBounds)) RestoreNormalClientWindow(info.Handle);
+    }
+
+    private static void MinimizeClientWindows(Rectangle monitorBounds)
+    {
+        foreach (var info in FindWindows(IsUmeProcess, visibleOnly: true).Select(ToWindowInfo))
+        {
+            if (IsMeetingWindow(info) || !IsMainWindowCandidate(info, monitorBounds)) continue;
+            ShowWindow(info.Handle, SwMinimize);
+            SetWindowPos(info.Handle, HwndBottom, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoOwnerZOrder);
+        }
     }
 
     private static void RestoreNormalClientWindow(IntPtr window)
