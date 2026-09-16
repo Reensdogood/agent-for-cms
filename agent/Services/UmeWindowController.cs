@@ -212,7 +212,10 @@ internal sealed class UmeWindowController
             var defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
             if (File.Exists(defaultPath)) restored = StartIvisionWithHighestTask(defaultPath);
         }
-        return new { umeWindowsHidden, iVisionWindowFound = didWindows.Count > 0, iVisionForegroundRequested = restored, iVisionStarted = didWindows.Count == 0 && restored };
+        var started = false;
+        if (didWindows.Count == 0 && PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask))
+            started = PrivilegedTaskBroker.RunIvisionLauncher();
+        return new { umeWindowsHidden, iVisionWindowFound = didWindows.Count > 0, iVisionForegroundRequested = restored, iVisionStarted = started };
     }
 
     private static bool StartIvisionWithHighestTask(string fallbackPath)
