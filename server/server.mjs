@@ -1045,7 +1045,7 @@ async function handleApi(req, res, url) {
     const scope = sameRegionOnly(session) ? " AND region_id = ?" : ""; const args = sameRegionOnly(session) ? [session.regionId] : [];
     const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved=1 AND julianday(last_seen_at)>=julianday('now','-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved=1 AND julianday(last_seen_at)>=julianday('now','-120 seconds')${scope}`).all(...args);
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, '{}', ?)"); const type = selectedBulkMatch[1] === "health" ? "health.probe" : (body.action === "stop" ? "ume.hide" : "ume.activate");
-    const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, type, "{}", now()); if (type === "health.probe") { try { if (JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id=?").get(row.id)?.last_health_json || "{}").display?.enabled) insert.run(crypto.randomUUID(), row.id, "display.status", "{}", now()); } catch {} } return id; });
+    const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, type, now()); if (type === "health.probe") { try { if (JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id=?").get(row.id)?.last_health_json || "{}").display?.enabled) insert.run(crypto.randomUUID(), row.id, "display.status", "{}", now()); } catch {} } return id; });
     audit(session.username, type + ".bulk", "ALL", { queued: commandIds.length }); return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
   }
 
