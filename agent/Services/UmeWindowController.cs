@@ -350,6 +350,19 @@ internal sealed class UmeWindowController
         return meeting.Handle;
     }
 
+    public async Task<bool> TryClickLoginButtonAsync(CancellationToken cancellationToken)
+    {
+        var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
+        if (bounds.IsEmpty) return false;
+        var target = FindBestBlueLoginButtonTarget(bounds);
+        if (target is null) return false;
+        BringWindowToTop(target.Window);
+        SetForegroundWindow(target.Window);
+        await Task.Delay(120, cancellationToken);
+        ClickScreenPoint(target.Candidate.CenterX, target.Candidate.CenterY);
+        return true;
+    }
+
     private static int CountUmeProcesses()
     {
         var processes = Process.GetProcesses();

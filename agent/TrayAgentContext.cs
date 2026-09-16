@@ -19,6 +19,7 @@ internal sealed class TrayAgentContext : ApplicationContext
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private DateTimeOffset _lastHeartbeat = DateTimeOffset.MinValue;
     private bool _meetingWindowWasVisible;
+    private DateTimeOffset _lastLoginAttempt = DateTimeOffset.MinValue;
     private string _status = "시작 중";
 
     public TrayAgentContext(AgentSettings settings, DeviceIdentityStore identityStore)
@@ -103,6 +104,15 @@ internal sealed class TrayAgentContext : ApplicationContext
                     _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "화상회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
                 }
 
+                if (!meetingVisible && DateTimeOffset.UtcNow - _lastLoginAttempt > TimeSpan.FromSeconds(5))
+                {
+                    var loginClicked = await _umeController.TryClickLoginButtonAsync(cancellationToken);
+                    if (loginClicked)
+                    {
+                        _lastLoginAttempt = DateTimeOffset.UtcNow;
+                        SetStatus("UME 로그인 버튼 자동 클릭");
+                    }
+                }
                 var clicked = await _umeController.TryClickForegroundGreenAcceptButtonAsync(cancellationToken);
                 if (clicked) SetStatus("UME 참가 버튼 자동 클릭");
             }
