@@ -141,12 +141,30 @@ internal static class Program
 
     private static void LaunchIvision()
     {
-        const string defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
-        if (!File.Exists(defaultPath)) return;
-        Process.Start(new ProcessStartInfo(defaultPath)
+        const string installDirectory = @"C:\i-Vision Player";
+        if (!Directory.Exists(installDirectory)) return;
+
+        // PlayAgent가 스케줄·감시를 담당하므로 Player만 띄우면 화면은 보여도
+        // 스케줄이 반영되지 않는다. 이미 실행 중인 프로세스는 재생성하지 않는다.
+        var playAgent = Directory.GetFiles(installDirectory, "*.exe", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(path => Path.GetFileNameWithoutExtension(path).Contains("PlayAgent", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(playAgent) && !IsProcessRunning("i-Vision.PlayAgent"))
+            StartIvisionProcess(playAgent);
+
+        var player = Path.Combine(installDirectory, "i-Vision.Player.exe");
+        if (File.Exists(player) && !IsProcessRunning("i-Vision.Player"))
+            StartIvisionProcess(player);
+    }
+
+    private static void StartIvisionProcess(string path)
+    {
+        Process.Start(new ProcessStartInfo(path)
         {
             UseShellExecute = true,
-            WorkingDirectory = Path.GetDirectoryName(defaultPath) ?? AppContext.BaseDirectory,
+            WorkingDirectory = Path.GetDirectoryName(path) ?? AppContext.BaseDirectory,
         });
     }
+
+    private static bool IsProcessRunning(string processName)
+        => Process.GetProcessesByName(processName).Any(process => { process.Dispose(); return true; });
 }

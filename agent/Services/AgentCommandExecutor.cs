@@ -182,7 +182,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         if (!PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask)
             || !PrivilegedTaskBroker.RunIvisionLauncher())
             throw new InvalidOperationException("i-vision 관리자 권한 실행 예약 작업을 찾거나 실행하지 못했습니다. Agent 설치를 다시 진행해 예약 작업을 등록해 주세요.");
-        return new { restarted = true, process = "i-Vision.Player", elevation = "privileged-task-broker" };
+        return new { restarted = true, processes = new[] { "i-Vision.PlayAgent", "i-Vision.Player" }, elevation = "privileged-task-broker" };
     }
 
     private static void EnsureIvisionLauncherTask()
