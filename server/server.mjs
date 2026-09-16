@@ -410,14 +410,10 @@ function compareReleaseVersions(left, right) {
 }
 
 function humanizeOsVersion(value, edition, displayVersion, buildValue, revisionValue) {
-  const raw = String(value || "");
-  const match = raw.match(/10\.0\.(\d+)/i);
-  const build = Number(buildValue || (match ? match[1] : 0));
-  if (!build) return raw || null;
-  const family = build >= 22000 ? "Windows 11" : build >= 19041 ? "Windows 10" : "Windows";
-  const release = displayVersion ? ` · ${displayVersion}` : "";
-  const editionLabel = edition ? ` · ${edition}` : "";
-  return `${family}${release}${editionLabel}`;
+  // 서버 화면에는 빌드 번호로 추정한 OS 계열을 표시하지 않는다.
+  // Agent가 보고한 사람이 읽을 수 있는 에디션과 릴리즈 버전만 사용한다.
+  const labels = [edition, displayVersion].filter((value) => value && String(value).trim());
+  return labels.length ? labels.join(" · ") : (String(value || "") || null);
 }
 
 function clearPendingDisplayCommands(deviceId) {
