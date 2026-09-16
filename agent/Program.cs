@@ -165,6 +165,9 @@ internal static class Program
         if (!string.IsNullOrWhiteSpace(playAgent) && !IsProcessRunning("i-Vision.PlayAgent"))
             StartIvisionProcess(playAgent);
 
+        // PlayAgent가 Player를 감시·생성하는 설치본이 있으므로 즉시 Player를
+        // 추가 실행하지 않고 잠시 기다린 뒤 다시 확인해 중복 창을 막는다.
+        if (!string.IsNullOrWhiteSpace(playAgent)) Thread.Sleep(1500);
         var player = Path.Combine(installDirectory, "i-Vision.Player.exe");
         if (File.Exists(player) && !IsProcessRunning("i-Vision.Player"))
             StartIvisionProcess(player);

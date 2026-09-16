@@ -330,9 +330,10 @@ internal sealed class UmeWindowController
     }
 
     private static bool IsMeetingWindow(WindowInfo info) =>
-        info.Title.Contains("회의", StringComparison.OrdinalIgnoreCase)
-        || info.Title.Contains("meeting", StringComparison.OrdinalIgnoreCase)
-        || info.Title.Contains("conference", StringComparison.OrdinalIgnoreCase);
+        info.Bounds.Width >= 900 && info.Bounds.Height >= 500
+        && (info.Title.Contains("회의", StringComparison.OrdinalIgnoreCase)
+            || info.Title.Contains("meeting", StringComparison.OrdinalIgnoreCase)
+            || info.Title.Contains("conference", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsMainWindowCandidate(WindowInfo info, Rectangle monitorBounds)
     {
