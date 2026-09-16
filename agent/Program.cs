@@ -157,17 +157,28 @@ internal static class Program
     {
         const string installDirectory = @"C:\i-Vision Player";
         if (!Directory.Exists(installDirectory)) return;
+        using var launchMutex = new Mutex(false, @"Local\Funnet-Ivision-Launch", out var acquired);
+        if (!acquired) return;
+        try
+        {
+            LaunchIvisionCore(installDirectory);
+        }
+        finally { launchMutex.ReleaseMutex(); }
+    }
+
+    private static void LaunchIvisionCore(string installDirectory)
+    {
 
         // PlayAgent가 스케줄·감시를 담당하므로 Player만 띄우면 화면은 보여도
         // 스케줄이 반영되지 않는다. 이미 실행 중인 프로세스는 재생성하지 않는다.
         var playAgent = Directory.GetFiles(installDirectory, "*.exe", SearchOption.TopDirectoryOnly)
             .FirstOrDefault(path => Path.GetFileNameWithoutExtension(path).Contains("PlayAgent", StringComparison.OrdinalIgnoreCase));
-        if (!string.IsNullOrWhiteSpace(playAgent) && !IsProcessRunning("i-Vision.PlayAgent"))
-            StartIvisionProcess(playAgent);
+        var hasPlayAgent = !string.IsNullOrWhiteSpace(playAgent);
+        if (hasPlayAgent && !IsProcessRunning("i-Vision.PlayAgent")) StartIvisionProcess(playAgent!);
 
-        // PlayAgent가 Player를 감시·생성하는 설치본이 있으므로 즉시 Player를
-        // 추가 실행하지 않고 잠시 기다린 뒤 다시 확인해 중복 창을 막는다.
-        if (!string.IsNullOrWhiteSpace(playAgent)) Thread.Sleep(1500);
+        // PlayAgent가 Player를 감시·생성하는 설치본에서는 Player를 직접
+        // 실행하지 않는다. 이 규칙이 중복 공백창을 막는 핵심이다.
+        if (hasPlayAgent) return;
         var player = Path.Combine(installDirectory, "i-Vision.Player.exe");
         if (File.Exists(player) && !IsProcessRunning("i-Vision.Player"))
             StartIvisionProcess(player);
