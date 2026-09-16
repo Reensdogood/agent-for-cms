@@ -337,9 +337,10 @@ internal sealed class InstallerForm : Form
 
     private static void RegisterElevatedStartup(string executable)
     {
-        // 자동 업데이트/설정 저장 때 이미 등록된 작업을 다시 만들지 않는다.
-        // 재생성 시마다 schtasks /RL HIGHEST가 UAC를 요청하는 것을 방지한다.
-        if (ScheduledTaskExists()) return;
+        // 기존 작업이 LIMITED로 남아 있거나 이전 exe 경로를 가리킬 수 있다.
+        // 설치·업데이트 시에는 현재 경로와 HIGHEST 권한을 함께 재등록한다.
+        // 설정 저장 경로에서는 이 메서드를 호출하지 않아 불필요한 UAC를 피한다.
+        DeleteScheduledStartup();
         using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
             $"/Create /TN \"{ScheduledTaskName}\" /TR \"\\\"{executable}\\\"\" /SC ONLOGON /RL HIGHEST /F")
         {
