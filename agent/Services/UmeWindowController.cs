@@ -212,9 +212,9 @@ internal sealed class UmeWindowController
             var defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
             if (File.Exists(defaultPath)) restored = StartIvisionWithHighestTask(defaultPath);
         }
-        var started = false;
-        if (didWindows.Count == 0 && PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask))
-            started = PrivilegedTaskBroker.RunIvisionLauncher();
+        // StartIvisionWithHighestTask가 관리자 작업을 한 번 호출한다.
+        // 여기서 같은 작업을 다시 호출하면 PlayAgent/Player가 중복 생성된다.
+        var started = didWindows.Count == 0 && restored;
         return new { umeWindowsHidden, iVisionWindowFound = didWindows.Count > 0, iVisionForegroundRequested = restored, iVisionStarted = started };
     }
 
@@ -376,6 +376,10 @@ internal sealed class UmeWindowController
 
     private static bool PromoteUmePopupIfVisible()
     {
+        // 사용자가 UME에서 메뉴/팝업을 직접 연 경우에만 입력 포커스를 존중한다.
+        // 백그라운드 UME를 매 주기 최상위로 올리면 다른 작업과 팝업 입력을 가로챈다.
+        var foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero || !IsUmeWindow(foreground)) return false;
         var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
         // 더보기/카메라/마이크 선택창은 UME가 소유한 모달 팝업으로 생성될 수 있다.
         // EnumWindows에서 제목이 비어 있거나 자식 UI로 보이는 경우에도
@@ -387,7 +391,7 @@ internal sealed class UmeWindowController
             var popupInfo = ToWindowInfo(popupHandle);
             if (IsAuxiliaryWindow(popupInfo) || IsMeetingWindow(popupInfo)) continue;
             ShowWindow(popupHandle, SwRestore);
-            SetWindowPos(popupHandle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
+            SetWindowPos(popupHandle, HwndTop, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
             BringWindowToTop(popupHandle);
             SetForegroundWindow(popupHandle);
             return true;
@@ -402,7 +406,7 @@ internal sealed class UmeWindowController
             .FirstOrDefault();
         if (popup is null) return false;
         ShowWindow(popup.Handle, SwRestore);
-        SetWindowPos(popup.Handle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
+        SetWindowPos(popup.Handle, HwndTop, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
         BringWindowToTop(popup.Handle);
         SetForegroundWindow(popup.Handle);
         return true;
@@ -413,6 +417,7 @@ internal sealed class UmeWindowController
         return info.Title.Equals("Aqua Camera Monitor", StringComparison.OrdinalIgnoreCase)
                 || info.Title.Contains("Camera Monitor", StringComparison.OrdinalIgnoreCase)
                 || info.Title.Equals("WhiteBoardToolBar", StringComparison.OrdinalIgnoreCase)
+                || info.Title.Equals("Hidden Window", StringComparison.OrdinalIgnoreCase)
                 || info.Title.Equals("USBCOMUSBDetect", StringComparison.OrdinalIgnoreCase)
                 || info.ClassName.Equals("Qt5158QWindowToolSaveBits", StringComparison.OrdinalIgnoreCase)
                 || info.ClassName.Equals("CmWin32SocketNotification_59168765", StringComparison.OrdinalIgnoreCase);
