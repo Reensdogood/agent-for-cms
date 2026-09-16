@@ -89,6 +89,7 @@ internal sealed class TrayAgentContext : ApplicationContext
             try
             {
                 var meetingVisible = _umeController.PrioritizeMeetingWindowIfVisible();
+                RuntimeTrace.Write("ume.window.sample", new { meetingVisible, visibleSamples = _meetingVisibleSamples, missingSamples = _meetingMissingSamples });
                 if (meetingVisible)
                 {
                     _meetingVisibleSamples++;
@@ -118,6 +119,7 @@ internal sealed class TrayAgentContext : ApplicationContext
                     var loginClicked = await _umeController.TryClickLoginButtonAsync(cancellationToken);
                     if (loginClicked)
                     {
+                        RuntimeTrace.Write("ume.login.clicked");
                         _lastLoginAttempt = DateTimeOffset.UtcNow;
                         SetStatus("UME 로그인 버튼 자동 클릭");
                     }

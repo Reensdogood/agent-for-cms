@@ -4,6 +4,7 @@ using System.Diagnostics;
 using Funnet.Gwanak.Agent.Display.Serial;
 using Funnet.Gwanak.Agent.Display.SamsungMdc;
 using Funnet.Gwanak.Agent.Display;
+using Funnet.Gwanak.Agent.Infrastructure;
 
 internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthCollector healthCollector, UmeWindowController umeController, AgentSettings settings)
 {
@@ -16,6 +17,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         var completed = 0;
         foreach (var command in await apiClient.GetCommandsAsync(cancellationToken))
         {
+            RuntimeTrace.Write("command.start", new { command.Id, command.Type });
             try
             {
                 object result = command.Type switch
@@ -38,10 +40,12 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                     _ => throw new InvalidOperationException("지원하지 않는 명령입니다."),
                 };
                 await apiClient.CompleteCommandAsync(command.Id, true, result, cancellationToken);
+                RuntimeTrace.Write("command.success", new { command.Id, command.Type });
                 completed++;
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
+                RuntimeTrace.Write("command.failure", new { command.Id, command.Type }, exception);
                 await apiClient.CompleteCommandAsync(command.Id, false, new { error = exception.Message }, cancellationToken);
             }
         }

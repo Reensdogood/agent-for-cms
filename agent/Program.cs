@@ -13,6 +13,7 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        RuntimeTrace.Write("agent.main.start", new { args = args.Where(x => !x.Contains("key", StringComparison.OrdinalIgnoreCase) && !x.Contains("token", StringComparison.OrdinalIgnoreCase)).ToArray() });
 
         if (args.Any(value => string.Equals(value, "--display-port-test", StringComparison.OrdinalIgnoreCase)))
         {
@@ -174,14 +175,14 @@ internal static class Program
         var playAgent = Directory.GetFiles(installDirectory, "*.exe", SearchOption.TopDirectoryOnly)
             .FirstOrDefault(path => Path.GetFileNameWithoutExtension(path).Contains("PlayAgent", StringComparison.OrdinalIgnoreCase));
         var hasPlayAgent = !string.IsNullOrWhiteSpace(playAgent);
-        if (hasPlayAgent && !IsProcessRunning("i-Vision.PlayAgent")) StartIvisionProcess(playAgent!);
+        if (hasPlayAgent && !IsProcessRunning("i-Vision.PlayAgent")) { RuntimeTrace.Write("ivision.playagent.start", new { path = playAgent }); StartIvisionProcess(playAgent!); }
 
         // PlayAgent가 Player를 감시·생성하는 설치본에서는 Player를 직접
         // 실행하지 않는다. 이 규칙이 중복 공백창을 막는 핵심이다.
-        if (hasPlayAgent) return;
+        if (hasPlayAgent) { RuntimeTrace.Write("ivision.player.delegated-to-playagent"); return; }
         var player = Path.Combine(installDirectory, "i-Vision.Player.exe");
         if (File.Exists(player) && !IsProcessRunning("i-Vision.Player"))
-            StartIvisionProcess(player);
+            RuntimeTrace.Write("ivision.player.start", new { path = player }); StartIvisionProcess(player);
     }
 
     private static void StartIvisionProcess(string path)
