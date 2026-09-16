@@ -121,23 +121,18 @@ internal sealed class UmeWindowController
                 mainWindowsPrepared++;
             }
         }
-        var promotedMeeting = PromoteMeetingWindow(bounds);
-        // 화상회의 본창이 아직 없으면 UME 클라이언트 창을 Foreground로 올리지 않는다.
-        // 대기/로그인 화면은 사용자의 다른 작업을 방해하지 않아야 하며, 회의창이
-        // 실제로 생성된 뒤에만 최상위·참가 버튼 자동 처리를 수행한다.
-        var acceptClick = promotedMeeting is IntPtr meeting
-            ? await TryClickGreenAcceptButtonAsync(meeting, bounds, cancellationToken)
-            : new { attempted = false, clicked = false, method = "deferred-until-meeting", elapsedMs = 0, loginRecoveryClicked = false, reason = "화상회의 창 대기 중" };
-        promotedMeeting = PromoteMeetingWindow(bounds);
-        if (promotedMeeting is null) MinimizeClientWindows(bounds);
+        // UME 실행 중 Agent가 어떤 창도 앞으로 가져오거나 입력 포커스를
+        // 변경하지 않는다. 회의창·초대 팝업은 사용자가 직접 조작한다.
+        var meetingVisible = windows.Any(IsMeetingWindow);
+        var acceptClick = new { attempted = false, clicked = false, method = "disabled-to-preserve-user-focus", elapsedMs = 0, loginRecoveryClicked = false, reason = "자동 포커스/클릭 비활성화" };
         return new
         {
             installation.Name,
             installation.Version,
             windowCount = windows.Count,
             mainWindowsPrepared,
-            meetingWindowPrioritized = promotedMeeting is not null,
-            meetingFullscreenApplied = promotedMeeting is not null,
+            meetingWindowPrioritized = false,
+            meetingFullscreenApplied = meetingVisible,
             monitor = new { bounds.X, bounds.Y, bounds.Width, bounds.Height },
             acceptClick
         };

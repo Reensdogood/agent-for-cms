@@ -88,7 +88,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         {
             try
             {
-                var meetingVisible = _umeController.PrioritizeMeetingWindowIfVisible();
+                var meetingVisible = _umeController.IsMeetingWindowVisible();
                 RuntimeTrace.Write("ume.window.sample", new { meetingVisible, visibleSamples = _meetingVisibleSamples, missingSamples = _meetingMissingSamples });
                 if (meetingVisible)
                 {
@@ -114,18 +114,7 @@ internal sealed class TrayAgentContext : ApplicationContext
                     }
                 }
 
-                if (!meetingVisible && DateTimeOffset.UtcNow - _lastLoginAttempt > TimeSpan.FromSeconds(5))
-                {
-                    var loginClicked = await _umeController.TryClickLoginButtonAsync(cancellationToken);
-                    if (loginClicked)
-                    {
-                        RuntimeTrace.Write("ume.login.clicked");
-                        _lastLoginAttempt = DateTimeOffset.UtcNow;
-                        SetStatus("UME 로그인 버튼 자동 클릭");
-                    }
-                }
-                var clicked = await _umeController.TryClickForegroundGreenAcceptButtonAsync(cancellationToken);
-                if (clicked) SetStatus("UME 참가 버튼 자동 클릭");
+                // 자동 클릭은 포커스를 탈취하므로 최종 로직에서 비활성화한다.
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
             catch { }
