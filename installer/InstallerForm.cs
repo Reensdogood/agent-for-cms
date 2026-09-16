@@ -363,7 +363,10 @@ internal sealed class InstallerForm : Form
         if (!File.Exists(updater)) return false;
         DeleteIvisionLauncher();
         using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
-            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{updater}\\\"\" /SC ONDEMAND /RL HIGHEST /F")
+            // ONDEMAND는 schtasks /Create에서 유효한 스케줄 형식이 아니다.
+            // 먼 미래의 ONCE 작업으로 등록하면 자동 실행은 발생하지 않고
+            // schtasks /Run으로만 호출할 수 있다.
+            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{updater}\\\"\" /SC ONCE /ST 23:59 /SD 12/31/2099 /RL HIGHEST /F")
         {
             // 설치기 자체가 app.manifest의 requireAdministrator로 상승되어
             // 있으므로 runas를 중첩 호출하지 않는다. 중첩 UAC는 Windows 10
