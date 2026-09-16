@@ -422,8 +422,8 @@ function clearPendingDisplayCommands(deviceId) {
 
 function deviceDto(row) {
   let displayEnabled = false;
-  let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null;
-  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; } catch {}
+  let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null; let agentElevated = null;
+  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
   const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
   if (displayCheck?.status === "completed") displayConnection = "정상";
@@ -440,6 +440,7 @@ function deviceDto(row) {
     approved: Boolean(row.approved),
     status: statusFor(row.last_seen_at),
     agentVersion: String(row.agent_version || "").split("+")[0] || null,
+    agentElevationRequired: agentElevated === false,
     ume: {
       name: row.ume_name,
       version: row.ume_version,

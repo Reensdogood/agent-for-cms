@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using Microsoft.Win32;
 using Funnet.Gwanak.Agent.Infrastructure;
 using Funnet.Gwanak.Agent.Models;
@@ -40,8 +41,15 @@ internal sealed class HealthCollector
             OsEdition = os.Edition,
             OsDisplayVersion = os.DisplayVersion,
             OsBuild = os.Build,
-            OsRevision = os.Revision
+            OsRevision = os.Revision,
+            AgentElevated = IsAgentElevated()
         };
+    }
+
+    private static bool IsAgentElevated()
+    {
+        try { using var identity = WindowsIdentity.GetCurrent(); return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator); }
+        catch { return false; }
     }
 
     private static (string? Edition, string? DisplayVersion, int? Build, int? Revision) ReadOsInfo()

@@ -23,6 +23,7 @@ internal sealed record HealthPayload(
     public string? OsDisplayVersion { get; init; }
     public int? OsBuild { get; init; }
     public int? OsRevision { get; init; }
+    public bool? AgentElevated { get; init; }
 }
 
 internal sealed record DisplayHealth(bool Enabled, string? Vendor, string? Model, string? Port);

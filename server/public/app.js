@@ -152,7 +152,7 @@ function deviceRow(device) {
   nameCell.title = `Device ID: ${device.id}`;
   nameCell.setAttribute("aria-label", `${device.displayName} (Device ID ${device.id})`);
   row.append(selectCell, status, tableCell(device.regionName || "-", "region-name"), nameCell, tableCell(device.id, "mono"),
-    tableCell(device.osVersion || "-", "os-version"), tableCell(device.agentVersion || "-"),
+    tableCell(device.osVersion || "-", "os-version"), (() => { const cell = tableCell(device.agentVersion || "-", "agent-version"); if (device.agentElevationRequired) cell.append(textElement("small", "pending-label", "관리자 권한으로 다시 실행 필요")); return cell; })(),
     tableCell(device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""} · funnet-agent ${device.agentVersion || "-"}` : `미감지 · funnet-agent ${device.agentVersion || "-"}`),
     tableCell(device.ivisionRunning ? "실행" : "미실행"), tableCell(device.displayConnection || "미확인", `display-connection ${device.displayConnection === "정상" ? "connected" : device.displayConnection === "연결 실패" ? "failed" : ""}`), tableCell(formatTime(device.lastSeenAt)));
   const actions = document.createElement("td");
