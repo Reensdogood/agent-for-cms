@@ -23,8 +23,8 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                 object result = command.Type switch
                 {
                     "health.probe" => await ProbeAsync(cancellationToken),
-                    "ume.activate" => await _umeController.ActivateAsync(cancellationToken),
-                    "ume.hide" => _umeController.HideAndRestoreDid(),
+                    "ume.activate" => await ActivateUmeAsync(cancellationToken),
+                    "ume.hide" => _umeController.CloseAndRestoreIvision(),
                     "ivision.stop" => StopIvision(),
                     "ivision.restart" => RestartIvision(),
                     "windows.shutdown" => ScheduleWindowsShutdown(),
@@ -139,6 +139,12 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     private SamsungMdcClient CreateDisplayClient()
     { if (!_settings.Display.Enabled || string.IsNullOrWhiteSpace(_settings.Display.Port)) throw new DisplayControlException(DisplayErrorCode.PortNotFound, "Samsung display is not enabled or port is not configured."); var transport = new WindowsSerialTransportFactory().Create(SerialPortConfiguration.ForSamsungMdc(_settings.Display.Port)); return new SamsungMdcClient(transport); }
 
+    private async Task<object> ActivateUmeAsync(CancellationToken cancellationToken)
+    {
+        if (GetIvisionProcesses().Length > 0) StopIvision();
+        return await _umeController.ActivateAsync(cancellationToken);
+    }
+
     private static object StopIvision()
     {
         // PlayAgent가 Player를 감시하므로 자식만 종료하면 즉시 다시 생성된다.
@@ -176,19 +182,11 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
 
     private static object RestartIvision()
     {
-        string? path = null;
         var processes = GetIvisionProcesses();
-        try { foreach (var process in processes) { try { if (process.ProcessName.Equals("i-Vision.Player", StringComparison.OrdinalIgnoreCase)) path ??= process.MainModule?.FileName; } catch { } } }
-        finally { foreach (var process in processes) process.Dispose(); }
+        foreach (var process in processes) process.Dispose();
         StopIvision();
-        // 관리자 권한 프로세스는 MainModule 경로 조회가 거부될 수 있다.
-        // 진단에서 확인된 기본 설치 경로를 안전한 대체 경로로 사용한다.
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            var defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
-            if (File.Exists(defaultPath)) path = defaultPath;
-        }
-        if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
+        var path = @"C:\i-Vision Player\iVisionUpdater.exe";
+        if (!File.Exists(path)) throw new InvalidOperationException("iVisionUpdater.exe를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
         if (!EnsureIvisionLauncherTask(path))
             throw new InvalidOperationException("Agent가 관리자 권한으로 실행되지 않아 I-Vision 실행 작업을 복구할 수 없습니다. Agent를 관리자 권한 자동 실행으로 다시 설치해 주세요.");
@@ -208,7 +206,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
             using (var delete = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Delete /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /F")
             { CreateNoWindow = true, UseShellExecute = false })) delete?.WaitForExit(3000);
             using var create = Process.Start(new ProcessStartInfo("schtasks.exe",
-                $"/Create /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /TR \"\\\"{executable}\\\" --launch-ivision\" /SC ONDEMAND /RL HIGHEST /F")
+                $"/Create /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /TR \"\\\"{executable}\\\"\" /SC ONDEMAND /RL HIGHEST /F")
             { CreateNoWindow = true, UseShellExecute = false });
             create?.WaitForExit(5000);
             return create is not null && create.ExitCode == 0;

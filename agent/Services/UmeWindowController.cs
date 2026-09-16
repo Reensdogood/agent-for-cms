@@ -150,6 +150,13 @@ internal sealed class UmeWindowController
         return RestoreIvision(umeWindows.Count);
     }
 
+    public object CloseAndRestoreIvision()
+    {
+        var result = CloseAllUmeProcesses();
+        var restored = RestoreIvision();
+        return new { ume = result, iVision = restored };
+    }
+
     public object CloseAllUmeProcesses()
     {
         var stopped = 0;
@@ -209,7 +216,7 @@ internal sealed class UmeWindowController
         }
         else
         {
-            var defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
+            var defaultPath = @"C:\i-Vision Player\iVisionUpdater.exe";
             if (File.Exists(defaultPath)) restored = StartIvisionWithHighestTask(defaultPath);
         }
         // StartIvisionWithHighestTask가 관리자 작업을 한 번 호출한다.

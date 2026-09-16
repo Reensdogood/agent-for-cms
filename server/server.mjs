@@ -846,11 +846,19 @@ async function handleApi(req, res, url) {
     const devices = requestedIds.length
       ? db.prepare(`SELECT id FROM devices WHERE approved = 1${scope} AND id IN (${requestedIds.map(() => "?").join(",")})`).all(...(sameRegionOnly(session) ? [session.regionId] : []), ...requestedIds)
       : db.prepare(`SELECT id FROM devices WHERE approved = 1${scope}`).all(...(sameRegionOnly(session) ? [session.regionId] : []));
-    const commandType = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.file_name) ? "agent.package.download" : "ume.package.download";
+    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.file_name);
+    const commandType = isAgentRelease ? "agent.package.download" : "ume.package.download";
+    // 구버전 Agent(1.3.x 포함)는 표준화된 funnet-agent-setup 이름을
+    // 허용하지 않고 Funnet.Gwanak.Agent 접두사만 인식한다. 실제 다운로드는
+    // releaseId로 처리되므로, 명령에 전달하는 이름만 하위 호환 이름으로
+    // 고정해 구버전 장비도 업데이트할 수 있게 한다.
+    const distributionFileName = isAgentRelease
+      ? `Funnet.Gwanak.Agent-${release.version}.exe`
+      : release.file_name;
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
     const createdAt = now();
     for (const device of devices) insert.run(crypto.randomUUID(), device.id, commandType, JSON.stringify({
-      releaseId: release.id, version: release.version, fileName: release.file_name,
+      releaseId: release.id, version: release.version, fileName: distributionFileName,
       sizeBytes: release.size_bytes, sha256: release.sha256,
       downloadPath: `/api/agent/releases/${release.id}/download`,
     }), createdAt);
