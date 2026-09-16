@@ -246,9 +246,11 @@ internal sealed class InstallerForm : Form
             var setupCopy = Path.Combine(_installDirectory, "funnet-agent-setup.exe");
             if (!_configureOnly && !string.Equals(Process.GetCurrentProcess().MainModule?.FileName, setupCopy, StringComparison.OrdinalIgnoreCase)) File.Copy(Process.GetCurrentProcess().MainModule?.FileName ?? "", setupCopy, true);
             RegisterElevatedStartup(executable);
-            // 런처 등록이 취소되어도 Agent 설치 자체는 중단하지 않는다.
-            // 다음 설정/업데이트에서 다시 등록할 수 있고, Agent는 기존 경로로 동작한다.
-            RegisterIvisionLauncher(executable);
+            // i-Vision 재실행은 이 예약 작업을 통해서만 관리자 권한으로 수행한다.
+            // 등록 실패를 설치 성공으로 처리하면 이후 서버 명령이 원인 없이
+            // 실패하므로, 설치 단계에서 즉시 사용자에게 알린다.
+            if (!RegisterIvisionLauncher())
+                throw new InvalidOperationException("i-Vision 관리자 권한 실행 작업 등록에 실패했습니다. 관리자 권한으로 설치기를 다시 실행해 주세요.");
             StartScheduledAgent();
             _enrollmentKey.Clear();
             ShowStatus("설치 완료 · Agent가 트레이에서 실행 중입니다.");
@@ -352,10 +354,13 @@ internal sealed class InstallerForm : Form
         if (task is null || task.ExitCode != 0) throw new InvalidOperationException("Agent 관리자 권한 자동 실행 등록에 실패했습니다.");
     }
 
-    private static bool RegisterIvisionLauncher(string executable)
+    private static bool RegisterIvisionLauncher()
     {
+        const string updater = @"C:\i-Vision Player\iVisionUpdater.exe";
+        if (!File.Exists(updater)) return false;
+        DeleteIvisionLauncher();
         using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
-            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{executable}\\\" --launch-ivision\" /SC ONDEMAND /RL HIGHEST /F")
+            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{updater}\\\"\" /SC ONDEMAND /RL HIGHEST /F")
         { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden });
         task?.WaitForExit(15000);
         return task is not null && task.ExitCode == 0;
