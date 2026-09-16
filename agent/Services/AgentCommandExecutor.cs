@@ -42,6 +42,14 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                 await apiClient.CompleteCommandAsync(command.Id, true, result, cancellationToken);
                 RuntimeTrace.Write("command.success", new { command.Id, command.Type });
                 completed++;
+                // 설치기가 기존 Agent를 종료하기 전에 서버에 완료를 확정한다.
+                // 완료 응답 이후에만 설치기를 시작해야 delivered 명령 재전달로
+                // 업데이트 설치기가 중복 실행되지 않는다.
+                if (result is PackageDeploymentService.AgentPackage agentPackage)
+                {
+                    PackageDeploymentService.StartAgentUpdate(agentPackage);
+                    return completed;
+                }
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {

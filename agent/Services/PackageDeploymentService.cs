@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Diagnostics;
 
 namespace Funnet.Gwanak.Agent.Services;
 
@@ -15,9 +16,15 @@ internal sealed class PackageDeploymentService(AgentApiClient apiClient)
     {
         var result = await DownloadCoreAsync(downloadPath, fileName, version, expectedSha256, expectedSize, false, cancellationToken);
         var path = result.GetType().GetProperty("path")?.GetValue(result)?.ToString() ?? throw new InvalidOperationException("에이전트 파일 경로가 없습니다.");
-        _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path, "--update") { UseShellExecute = true });
-        return new { version, fileName, path, sha256 = expectedSha256, updated = true };
+        return new AgentPackage(version, fileName, path, expectedSha256);
     }
+
+    public static void StartAgentUpdate(AgentPackage package)
+    {
+        Process.Start(new ProcessStartInfo(package.Path, "--update") { UseShellExecute = true });
+    }
+
+    internal sealed record AgentPackage(string Version, string FileName, string Path, string Sha256);
 
     private async Task<object> DownloadCoreAsync(string downloadPath, string fileName, string version,
         string expectedSha256, long expectedSize, bool requireSignature, CancellationToken cancellationToken)
