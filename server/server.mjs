@@ -416,9 +416,8 @@ function humanizeOsVersion(value, edition, displayVersion, buildValue, revisionV
   if (!build) return raw || null;
   const family = build >= 22000 ? "Windows 11" : build >= 19041 ? "Windows 10" : "Windows";
   const release = displayVersion ? ` · ${displayVersion}` : "";
-  const revision = Number.isInteger(Number(revisionValue)) ? `.${revisionValue}` : "";
   const editionLabel = edition ? ` · ${edition}` : "";
-  return `${family}${release}${editionLabel} · 빌드 ${build}${revision}`;
+  return `${family}${release}${editionLabel}`;
 }
 
 function clearPendingDisplayCommands(deviceId) {
