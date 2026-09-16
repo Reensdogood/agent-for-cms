@@ -361,7 +361,15 @@ internal sealed class InstallerForm : Form
         DeleteIvisionLauncher();
         using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
             $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{updater}\\\"\" /SC ONDEMAND /RL HIGHEST /F")
-        { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden });
+        {
+            // 설치기 자체가 app.manifest의 requireAdministrator로 상승되어
+            // 있으므로 runas를 중첩 호출하지 않는다. 중첩 UAC는 Windows 10
+            // IoT에서 schtasks 등록 실패로 처리되는 경우가 있다.
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        });
         task?.WaitForExit(15000);
         return task is not null && task.ExitCode == 0;
     }
