@@ -176,22 +176,17 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
         EnsureIvisionLauncherTask();
-        using var task = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("schtasks.exe", "/Run /TN \"Funnet i-Vision Launcher\"")
-        { CreateNoWindow = true, UseShellExecute = false });
-        task?.WaitForExit(5000);
-        if (task is null || task.ExitCode != 0)
+        if (!PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask)
+            || !PrivilegedTaskBroker.RunIvisionLauncher())
             throw new InvalidOperationException("i-vision 관리자 권한 실행 예약 작업을 찾거나 실행하지 못했습니다. Agent 설치를 다시 진행해 예약 작업을 등록해 주세요.");
-        return new { restarted = true, process = "i-Vision.Player", elevation = "scheduled-highest" };
+        return new { restarted = true, process = "i-Vision.Player", elevation = "privileged-task-broker" };
     }
 
     private static void EnsureIvisionLauncherTask()
     {
         try
         {
-            using var query = Process.Start(new ProcessStartInfo("schtasks.exe", "/Query /TN \"Funnet i-Vision Launcher\"")
-            { CreateNoWindow = true, UseShellExecute = false });
-            query?.WaitForExit(2000);
-            if (query?.ExitCode == 0) return;
+            if (PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask)) return;
             var executable = Environment.ProcessPath;
             if (string.IsNullOrWhiteSpace(executable)) return;
             var date = DateTime.Now.Date.AddDays(1).ToString("yyyy/MM/dd", System.Globalization.CultureInfo.InvariantCulture);
