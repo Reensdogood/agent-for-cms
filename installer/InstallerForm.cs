@@ -26,6 +26,7 @@ internal sealed class InstallerForm : Form
     private readonly bool _configureOnly;
     private readonly bool _updateOnly;
     private string _existingEnrollmentKey = "";
+    private static string _lastTaskError = "";
     public InstallerForm(bool configureOnly = false, bool updateOnly = false)
     {
         _configureOnly = configureOnly;
@@ -253,7 +254,7 @@ internal sealed class InstallerForm : Form
             // 등록 실패를 설치 성공으로 처리하면 이후 서버 명령이 원인 없이
             // 실패하므로, 설치 단계에서 즉시 사용자에게 알린다.
             if (!RegisterIvisionLauncher())
-                throw new InvalidOperationException("i-Vision 관리자 권한 실행 작업 등록에 실패했습니다. 관리자 권한으로 설치기를 다시 실행해 주세요.");
+                throw new InvalidOperationException($"i-Vision 관리자 권한 실행 작업 등록에 실패했습니다. {(_lastTaskError.Length > 0 ? _lastTaskError : "관리자 권한으로 설치기를 다시 실행해 주세요.")} ");
             StartScheduledAgent();
             _enrollmentKey.Clear();
             ShowStatus("설치 완료 · Agent가 트레이에서 실행 중입니다.");
@@ -366,7 +367,7 @@ internal sealed class InstallerForm : Form
             // ONDEMAND는 schtasks /Create에서 유효한 스케줄 형식이 아니다.
             // 먼 미래의 ONCE 작업으로 등록하면 자동 실행은 발생하지 않고
             // schtasks /Run으로만 호출할 수 있다.
-            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{updater}\\\"\" /SC ONCE /ST 23:59 /SD 12/31/2099 /RL HIGHEST /F")
+            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{updater}\\\"\" /SC ONCE /ST 23:59 /RL HIGHEST /F")
         {
             // 설치기 자체가 app.manifest의 requireAdministrator로 상승되어
             // 있으므로 runas를 중첩 호출하지 않는다. 중첩 UAC는 Windows 10
@@ -377,7 +378,14 @@ internal sealed class InstallerForm : Form
             RedirectStandardError = true,
         });
         task?.WaitForExit(15000);
-        return task is not null && task.ExitCode == 0;
+        if (task is null || task.ExitCode != 0)
+        {
+            var detail = task is null ? "schtasks 프로세스를 시작하지 못했습니다." : task.StandardError.ReadToEnd().Trim();
+            if (string.IsNullOrWhiteSpace(detail) && task is not null) detail = task.StandardOutput.ReadToEnd().Trim();
+            _lastTaskError = detail;
+            return false;
+        }
+        return true;
     }
 
     private static bool ScheduledTaskExists()

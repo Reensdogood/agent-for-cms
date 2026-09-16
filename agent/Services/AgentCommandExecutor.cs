@@ -212,7 +212,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
             using (var delete = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Delete /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /F")
             { CreateNoWindow = true, UseShellExecute = false })) delete?.WaitForExit(3000);
             using var create = Process.Start(new ProcessStartInfo("schtasks.exe",
-                $"/Create /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /TR \"\\\"{executable}\\\"\" /SC ONCE /ST 23:59 /SD 12/31/2099 /RL HIGHEST /F")
+                $"/Create /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /TR \"\\\"{executable}\\\"\" /SC ONCE /ST 23:59 /RL HIGHEST /F")
             { CreateNoWindow = true, UseShellExecute = false });
             create?.WaitForExit(5000);
             return create is not null && create.ExitCode == 0;
