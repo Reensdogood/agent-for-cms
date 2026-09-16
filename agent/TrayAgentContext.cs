@@ -20,6 +20,8 @@ internal sealed class TrayAgentContext : ApplicationContext
     private DateTimeOffset _lastHeartbeat = DateTimeOffset.MinValue;
     private bool _meetingWindowWasVisible;
     private DateTimeOffset _lastLoginAttempt = DateTimeOffset.MinValue;
+    private int _meetingVisibleSamples;
+    private int _meetingMissingSamples;
     private string _status = "시작 중";
 
     public TrayAgentContext(AgentSettings settings, DeviceIdentityStore identityStore)
@@ -89,19 +91,26 @@ internal sealed class TrayAgentContext : ApplicationContext
                 var meetingVisible = _umeController.PrioritizeMeetingWindowIfVisible();
                 if (meetingVisible)
                 {
-                    _meetingWindowWasVisible = true;
+                    _meetingVisibleSamples++;
+                    _meetingMissingSamples = 0;
+                    // OS별 창 생성 중간 상태나 일시적인 보조창을 회의창으로
+                    // 오인하지 않도록 연속 3회(약 2초) 확인 후에만 상태 전환한다.
+                    if (_meetingVisibleSamples >= 3) _meetingWindowWasVisible = true;
                     SetStatus("UME 화상회의 진행 중");
                 }
-                else if (_meetingWindowWasVisible)
+                else
                 {
-                    _meetingWindowWasVisible = false;
-                    // 회의가 끝나면 UME 본창·빈 보조창·트레이 프로세스를 모두
-                    // 종료해 i-Vision을 가리지 않게 한다. 다음 UME 실행 명령에서
-                    // 필요한 UME 프로세스를 새로 시작한다.
-                    _umeController.CloseAllUmeProcesses();
-                    _umeController.RestoreIvisionOnly();
-                    SetStatus("화상회의 종료 · UME 종료 · i-vision 복귀");
-                    _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "화상회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
+                    _meetingVisibleSamples = 0;
+                    _meetingMissingSamples++;
+                    if (_meetingWindowWasVisible && _meetingMissingSamples >= 3)
+                    {
+                        _meetingWindowWasVisible = false;
+                        // 실제 회의가 끝난 뒤에만 UME 정리와 I-Vision 복귀를 수행한다.
+                        _umeController.CloseAllUmeProcesses();
+                        _umeController.RestoreIvisionOnly();
+                        SetStatus("화상회의 종료 · UME 종료 · i-vision 복귀");
+                        _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "화상회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
+                    }
                 }
 
                 if (!meetingVisible && DateTimeOffset.UtcNow - _lastLoginAttempt > TimeSpan.FromSeconds(5))
