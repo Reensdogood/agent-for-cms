@@ -20,7 +20,7 @@ internal sealed class InstallerForm : Form
     private readonly Button _install = new() { Text = "Agent 설치", Height = 48, Dock = DockStyle.Fill, Margin = new Padding(0) };
     private readonly Button _cancelSettings = new() { Text = "취소", Height = 42, Dock = DockStyle.Fill, Margin = new Padding(0), Visible = false };
     private readonly Button _uninstall = new() { Text = "기존 Agent 제거", Height = 42, Dock = DockStyle.Fill, Margin = new Padding(0) };
-    private readonly Label _status = new() { AutoSize = false, Height = 64, ForeColor = Color.FromArgb(99, 99, 102), TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = false };
+    private readonly TextBox _status = new() { Multiline = true, ReadOnly = true, WordWrap = true, ScrollBars = ScrollBars.Vertical, Height = 64, ForeColor = Color.FromArgb(99, 99, 102), BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(245, 245, 247), TabStop = false };
     private readonly string _installDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Funnet", "funnet-gwanak-agent");
 
     private readonly bool _configureOnly;
@@ -32,8 +32,8 @@ internal sealed class InstallerForm : Form
         _updateOnly = updateOnly;
         Text = "Funnet 관악 Agent 설치";
         Width = 560; Height = 850; MinimumSize = new Size(540, 720);
-        StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96F, 96F); AutoScroll = true; Font = new Font("Segoe UI", 10F);
+        StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.None;
+        AutoScroll = false; Font = new Font("Segoe UI", 10F);
         BackColor = Color.FromArgb(245, 245, 247); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
 
         var logo = new PictureBox
@@ -100,6 +100,7 @@ internal sealed class InstallerForm : Form
         panel.Controls.Add(_uninstall);
         panel.Controls.Add(_status);
         Controls.Add(panel);
+        _status.Dock = DockStyle.Fill;
         StyleTextBox(_serverUrl);
         StyleTextBox(_enrollmentKey);
         StyleTextBox(_deviceName);
