@@ -409,16 +409,16 @@ function compareReleaseVersions(left, right) {
   return 0;
 }
 
-function humanizeOsVersion(value) {
+function humanizeOsVersion(value, edition, displayVersion, buildValue, revisionValue) {
   const raw = String(value || "");
   const match = raw.match(/10\.0\.(\d+)/i);
-  if (!match) return raw || null;
-  const build = Number(match[1]);
-  if (build >= 26100) return `Windows 11 (24H2) · 빌드 ${build}`;
-  if (build >= 22621) return `Windows 11 · 빌드 ${build}`;
-  if (build >= 22000) return `Windows 11 · 빌드 ${build}`;
-  if (build >= 19041) return `Windows 10 · 빌드 ${build}`;
-  return `Windows · 빌드 ${build}`;
+  const build = Number(buildValue || (match ? match[1] : 0));
+  if (!build) return raw || null;
+  const family = build >= 22000 ? "Windows 11" : build >= 19041 ? "Windows 10" : "Windows";
+  const release = displayVersion ? ` · ${displayVersion}` : "";
+  const revision = Number.isInteger(Number(revisionValue)) ? `.${revisionValue}` : "";
+  const editionLabel = edition ? ` · ${edition}` : "";
+  return `${family}${release}${editionLabel} · 빌드 ${build}${revision}`;
 }
 
 function clearPendingDisplayCommands(deviceId) {
@@ -427,15 +427,15 @@ function clearPendingDisplayCommands(deviceId) {
 
 function deviceDto(row) {
   let displayEnabled = false;
-  let osVersion = null;
-  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); osVersion = health.osVersion || null; } catch {}
+  let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null;
+  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; } catch {}
   const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
   if (displayCheck?.status === "completed") displayConnection = "정상";
   else if (displayCheck?.status === "failed") displayConnection = "연결 실패";
   return {
     id: row.id,
-    osVersion: humanizeOsVersion(osVersion),
+    osVersion: humanizeOsVersion(osVersion, osEdition, osDisplayVersion, osBuild, osRevision),
     installationId: row.installation_id,
     regionId: row.region_id,
     regionName: row.region_name || "미지정",
