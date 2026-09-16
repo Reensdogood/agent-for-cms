@@ -86,18 +86,20 @@ internal static class Program
             return;
         }
 
-        // 사용자가 exe를 직접 실행해도 비관리자 트레이가 먼저 올라오지 않도록
-        // 설치 시 등록한 최고 권한 예약 작업으로 전환한다. 작업이 없으면 설치
-        // 상태를 훼손하지 않고 기존 동작을 유지하되, 관리자 명령은 명확히 실패한다.
-        if (!PrivilegedTaskBroker.IsElevated() && PrivilegedTaskBroker.TaskExists("Funnet Gwanak Agent"))
+        // 설치된 Agent는 반드시 최고 권한 예약 작업의 단일 인스턴스로만 실행한다.
+        // 일반 권한 인스턴스를 허용하면 I-Vision 재실행/UAC 브로커가 실패하므로
+        // 작업이 없을 때도 일반 권한 트레이를 띄우지 않고 명확히 중단한다.
+        if (!PrivilegedTaskBroker.IsElevated())
         {
-            try
+            if (PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.AgentTask))
             {
-                using var elevate = Process.Start(new ProcessStartInfo("schtasks.exe", "/Run /TN \"Funnet Gwanak Agent\"") { CreateNoWindow = true, UseShellExecute = false });
-                elevate?.WaitForExit(5000);
+                RuntimeTrace.Write("agent.elevation.handoff", new { task = PrivilegedTaskBroker.AgentTask, started = PrivilegedTaskBroker.RunAgent() });
                 return;
             }
-            catch { }
+
+            RuntimeTrace.Write("agent.elevation.missing-task", new { task = PrivilegedTaskBroker.AgentTask });
+            MessageBox.Show("Agent 관리자 권한 작업이 등록되지 않았습니다. 설치기를 관리자 권한으로 다시 실행해 주세요.", "Funnet Agent", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
         }
 
         using var mutex = new Mutex(true, @"Local\funnet-gwanak-agent", out var isFirstInstance);

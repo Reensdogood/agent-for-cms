@@ -249,7 +249,7 @@ internal sealed class InstallerForm : Form
             // 런처 등록이 취소되어도 Agent 설치 자체는 중단하지 않는다.
             // 다음 설정/업데이트에서 다시 등록할 수 있고, Agent는 기존 경로로 동작한다.
             RegisterIvisionLauncher(executable);
-            Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = _installDirectory });
+            StartScheduledAgent();
             _enrollmentKey.Clear();
             ShowStatus("설치 완료 · Agent가 트레이에서 실행 중입니다.");
             BeginInvoke(Close);
@@ -273,7 +273,7 @@ internal sealed class InstallerForm : Form
             ShowStatus("설정을 저장했습니다. Agent를 재시작합니다.");
             StopAgent();
             var executable = Path.Combine(_installDirectory, "funnet-gwanak-agent.exe");
-            if (File.Exists(executable)) Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = _installDirectory });
+            if (File.Exists(executable)) StartScheduledAgent();
             BeginInvoke((Action)(() => Application.Exit()));
         }
         catch (Exception exception) { ShowStatus(exception.Message, true); }
@@ -371,6 +371,15 @@ internal sealed class InstallerForm : Form
             return query?.ExitCode == 0;
         }
         catch { return false; }
+    }
+
+    private static void StartScheduledAgent()
+    {
+        if (!ScheduledTaskExists()) throw new InvalidOperationException("Agent 관리자 권한 자동 실행 작업을 찾을 수 없습니다.");
+        using var start = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Run /TN \"{ScheduledTaskName}\"")
+        { CreateNoWindow = true, UseShellExecute = false });
+        start?.WaitForExit(5000);
+        if (start is null || start.ExitCode != 0) throw new InvalidOperationException("Agent 관리자 권한 실행을 시작하지 못했습니다.");
     }
 
     private static void DeleteScheduledStartup()

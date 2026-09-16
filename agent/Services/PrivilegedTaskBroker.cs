@@ -9,6 +9,7 @@ namespace Funnet.Gwanak.Agent.Services;
 /// </summary>
 internal static class PrivilegedTaskBroker
 {
+    internal const string AgentTask = "Funnet Gwanak Agent";
     internal const string IvisionLauncherTask = "Funnet i-Vision Launcher";
 
     internal static bool IsElevated()
@@ -19,16 +20,30 @@ internal static class PrivilegedTaskBroker
 
     internal static bool RunIvisionLauncher()
     {
-        using var process = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Run /TN \"{IvisionLauncherTask}\"")
+        return RunTask(IvisionLauncherTask);
+    }
+
+    internal static bool RunAgent()
+    {
+        return RunTask(AgentTask);
+    }
+
+    internal static bool RunTask(string taskName)
+    {
+        try
         {
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        });
-        if (process is null) return false;
-        process.WaitForExit(5000);
-        return process.ExitCode == 0;
+            using var process = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Run /TN \"{taskName}\"")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            if (process is null) return false;
+            process.WaitForExit(5000);
+            return process.ExitCode == 0;
+        }
+        catch { return false; }
     }
 
     internal static bool TaskExists(string taskName)
