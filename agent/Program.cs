@@ -52,6 +52,17 @@ internal static class Program
             return;
         }
 
+        if (args.Any(value => string.Equals(value, "--remote-screen-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            var result = RemoteControlService.CapturePrimaryScreen();
+            var json = JsonSerializer.Serialize(result, JsonDefaults.Indented);
+            var reportPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Funnet", "funnet-gwanak-agent", "remote-screen-test.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(reportPath)!);
+            File.WriteAllText(reportPath, json);
+            Console.WriteLine(reportPath);
+            return;
+        }
+
         if (args.Any(value => string.Equals(value, "--launch-ivision", StringComparison.OrdinalIgnoreCase)))
         {
             LaunchIvision();

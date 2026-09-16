@@ -992,6 +992,32 @@ async function handleApi(req, res, url) {
     return json(res, 202, { commandId, status: "pending" });
   }
 
+  const remoteCommandMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/remote\/(screen|key|click)$/i);
+  if (req.method === "POST" && remoteCommandMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!assertRole(session, res, ["admin", "system_manager"])) return;
+    const device = db.prepare("SELECT id, region_id, approved FROM devices WHERE id = ?").get(remoteCommandMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 원격 제어할 수 있습니다." });
+    if (!device.approved) return json(res, 400, { error: "승인된 장비만 원격 제어할 수 있습니다." });
+    const kind = remoteCommandMatch[2].toLowerCase();
+    let type = "remote.screen.capture"; let payload = {};
+    if (kind === "key") {
+      const body = await readJson(req); const key = String(body.key || "").toUpperCase();
+      if (!["LEFT", "RIGHT", "UP", "DOWN", "ENTER", "ESC", "TAB", "SPACE"].includes(key)) return json(res, 400, { error: "허용되지 않은 키입니다." });
+      type = "remote.input.key"; payload = { key };
+    } else if (kind === "click") {
+      const body = await readJson(req); const x = Number(body.x); const y = Number(body.y);
+      if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x > 10000 || y > 10000) return json(res, 400, { error: "화면 좌표가 올바르지 않습니다." });
+      type = "remote.input.click"; payload = { x, y };
+    }
+    const commandId = crypto.randomUUID();
+    db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)").run(commandId, device.id, type, JSON.stringify(payload), now());
+    audit(session.username, type, device.id, { commandId, payload });
+    return json(res, 202, { commandId, status: "pending", warning: "UAC 보안 데스크톱은 원격 입력 대상이 아닙니다." });
+  }
+
   const displayStatusMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/display\/status$/i);
   if (req.method === "GET" && displayStatusMatch) {
     const session = requireAdmin(req, res);
