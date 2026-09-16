@@ -188,11 +188,17 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         var path = @"C:\i-Vision Player\iVisionUpdater.exe";
         if (!File.Exists(path)) throw new InvalidOperationException("iVisionUpdater.exe를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
-        if (!EnsureIvisionLauncherTask(path))
-            throw new InvalidOperationException("Agent가 관리자 권한으로 실행되지 않아 I-Vision 실행 작업을 복구할 수 없습니다. Agent를 관리자 권한 자동 실행으로 다시 설치해 주세요.");
-        if (!PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask)
-            || !PrivilegedTaskBroker.RunIvisionLauncher())
-            throw new InvalidOperationException("i-vision 관리자 권한 실행 예약 작업을 찾거나 실행하지 못했습니다. Agent 설치를 다시 진행해 예약 작업을 등록해 주세요.");
+        // 이미 설치 시 등록된 관리자 권한 작업이 있으면 Agent 자신의 토큰과
+        // 무관하게 작업을 실행할 수 있어야 한다. 기존 코드는 먼저
+        // IsElevated()를 검사해 일반 토큰 Agent가 정상 등록된 작업까지
+        // 실행하지 못하게 막고 있었다.
+        if (!PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask))
+        {
+            if (!EnsureIvisionLauncherTask(path))
+                throw new InvalidOperationException("i-vision 관리자 권한 실행 작업이 등록되지 않았습니다. Agent 설치를 관리자 권한으로 다시 진행해 주세요.");
+        }
+        if (!PrivilegedTaskBroker.RunIvisionLauncher())
+            throw new InvalidOperationException("i-vision 관리자 권한 실행 예약 작업을 시작하지 못했습니다.");
         return new { restarted = true, processes = new[] { "i-Vision.PlayAgent", "i-Vision.Player" }, elevation = "privileged-task-broker" };
     }
 
