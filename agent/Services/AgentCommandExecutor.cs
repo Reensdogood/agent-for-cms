@@ -32,6 +32,9 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                     "display.input" => await DisplayInputAsync(command, cancellationToken),
                     "display.volume" => await DisplayVolumeAsync(command, cancellationToken),
                     "display.status" => await DisplayStatusAsync(cancellationToken),
+                    "remote.screen.capture" => RemoteControlService.CapturePrimaryScreen(),
+                    "remote.input.key" => RemoteControlService.SendKey(command.Payload.GetProperty("key").GetString() ?? ""),
+                    "remote.input.click" => RemoteControlService.Click(command.Payload.GetProperty("x").GetInt32(), command.Payload.GetProperty("y").GetInt32()),
                     _ => throw new InvalidOperationException("지원하지 않는 명령입니다."),
                 };
                 await apiClient.CompleteCommandAsync(command.Id, true, result, cancellationToken);
