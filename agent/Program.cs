@@ -85,6 +85,20 @@ internal static class Program
             return;
         }
 
+        // 사용자가 exe를 직접 실행해도 비관리자 트레이가 먼저 올라오지 않도록
+        // 설치 시 등록한 최고 권한 예약 작업으로 전환한다. 작업이 없으면 설치
+        // 상태를 훼손하지 않고 기존 동작을 유지하되, 관리자 명령은 명확히 실패한다.
+        if (!PrivilegedTaskBroker.IsElevated() && PrivilegedTaskBroker.TaskExists("Funnet Gwanak Agent"))
+        {
+            try
+            {
+                using var elevate = Process.Start(new ProcessStartInfo("schtasks.exe", "/Run /TN \"Funnet Gwanak Agent\"") { CreateNoWindow = true, UseShellExecute = false });
+                elevate?.WaitForExit(5000);
+                return;
+            }
+            catch { }
+        }
+
         using var mutex = new Mutex(true, @"Local\funnet-gwanak-agent", out var isFirstInstance);
         if (!isFirstInstance)
         {

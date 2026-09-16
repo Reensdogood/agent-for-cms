@@ -353,9 +353,8 @@ internal sealed class InstallerForm : Form
 
     private static bool RegisterIvisionLauncher(string executable)
     {
-        var date = DateTime.Now.Date.AddDays(1).ToString("MM/dd/yyyy", System.Globalization.CultureInfo.InvariantCulture);
         using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
-            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{executable}\\\" --launch-ivision\" /SC ONCE /SD {date} /ST 00:00 /RL HIGHEST /F")
+            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{executable}\\\" --launch-ivision\" /SC ONDEMAND /RL HIGHEST /F")
         { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden });
         task?.WaitForExit(15000);
         return task is not null && task.ExitCode == 0;

@@ -178,27 +178,30 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         }
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
-        EnsureIvisionLauncherTask();
+        if (!EnsureIvisionLauncherTask(path))
+            throw new InvalidOperationException("Agent가 관리자 권한으로 실행되지 않아 I-Vision 실행 작업을 복구할 수 없습니다. Agent를 관리자 권한 자동 실행으로 다시 설치해 주세요.");
         if (!PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask)
             || !PrivilegedTaskBroker.RunIvisionLauncher())
             throw new InvalidOperationException("i-vision 관리자 권한 실행 예약 작업을 찾거나 실행하지 못했습니다. Agent 설치를 다시 진행해 예약 작업을 등록해 주세요.");
         return new { restarted = true, processes = new[] { "i-Vision.PlayAgent", "i-Vision.Player" }, elevation = "privileged-task-broker" };
     }
 
-    private static void EnsureIvisionLauncherTask()
+    private static bool EnsureIvisionLauncherTask(string executable)
     {
         try
         {
-            if (PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask)) return;
-            var executable = Environment.ProcessPath;
-            if (string.IsNullOrWhiteSpace(executable)) return;
-            var date = DateTime.Now.Date.AddDays(1).ToString("yyyy/MM/dd", System.Globalization.CultureInfo.InvariantCulture);
+            // 이전 버전은 ONCE 작업과 이전 exe 경로를 남길 수 있다. 재실행 시
+            // 현재 Agent 경로로 작업을 원자적으로 갱신해 Win10에서도 동일하게 동작시킨다.
+            if (!PrivilegedTaskBroker.IsElevated()) return false;
+            using (var delete = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Delete /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /F")
+            { CreateNoWindow = true, UseShellExecute = false })) delete?.WaitForExit(3000);
             using var create = Process.Start(new ProcessStartInfo("schtasks.exe",
-                $"/Create /TN \"Funnet i-Vision Launcher\" /TR \"\\\"{executable}\\\" --launch-ivision\" /SC ONCE /SD {date} /ST 00:00 /RL HIGHEST /F")
+                $"/Create /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /TR \"\\\"{executable}\\\" --launch-ivision\" /SC ONDEMAND /RL HIGHEST /F")
             { CreateNoWindow = true, UseShellExecute = false });
             create?.WaitForExit(5000);
+            return create is not null && create.ExitCode == 0;
         }
-        catch { }
+        catch { return false; }
     }
 
     private static object ScheduleWindowsShutdown()
