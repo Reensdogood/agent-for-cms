@@ -257,7 +257,7 @@ internal sealed class InstallerForm : Form
             // 실패하므로, 설치 단계에서 즉시 사용자에게 알린다.
             if (!RegisterIvisionLauncher())
                 throw new InvalidOperationException($"i-Vision 관리자 권한 실행 작업 등록에 실패했습니다. {(_lastTaskError.Length > 0 ? _lastTaskError : "관리자 권한으로 설치기를 다시 실행해 주세요.")} ");
-            StartScheduledAgent();
+            StartScheduledAgent(executable);
             _enrollmentKey.Clear();
             // 설치 결과를 확인하기 전에 창을 자동으로 닫으면, 예약 작업이나
             // Agent 시작 실패가 사용자에게 보이지 않는다. 최종 상태를 화면에
@@ -286,7 +286,7 @@ internal sealed class InstallerForm : Form
             ShowStatus("설정을 저장했습니다. Agent를 재시작합니다.");
             StopAgent();
             var executable = Path.Combine(_installDirectory, "funnet-gwanak-agent.exe");
-            if (File.Exists(executable)) StartScheduledAgent();
+            if (File.Exists(executable)) StartScheduledAgent(executable);
             BeginInvoke((Action)(() => Application.Exit()));
         }
         catch (Exception exception) { ShowStatus(exception.Message, true); }
@@ -407,9 +407,11 @@ internal sealed class InstallerForm : Form
         catch { return false; }
     }
 
-    private static void StartScheduledAgent()
+    private static void StartScheduledAgent(string executable)
     {
         if (!ScheduledTaskExists()) throw new InvalidOperationException("Agent 관리자 권한 자동 실행 작업을 찾을 수 없습니다.");
+        if (!ScheduledTaskTargets(executable))
+            throw new InvalidOperationException("관리자 권한 자동 실행 작업이 현재 Agent 파일을 가리키지 않습니다. 설치를 다시 진행해 주세요.");
         using var start = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Run /TN \"{ScheduledTaskName}\"")
         { CreateNoWindow = true, UseShellExecute = false });
         start?.WaitForExit(5000);
@@ -420,10 +422,38 @@ internal sealed class InstallerForm : Form
         // 트레이 아이콘이 없는 상태를 성공으로 오인하게 된다.
         for (var attempt = 0; attempt < 20; attempt++)
         {
-            if (Process.GetProcessesByName("funnet-gwanak-agent").Length > 0) return;
+            foreach (var process in Process.GetProcessesByName("funnet-gwanak-agent"))
+            {
+                try
+                {
+                    if (string.Equals(Path.GetFullPath(process.MainModule?.FileName ?? ""), Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase))
+                        return;
+                }
+                catch { /* 프로세스가 시작/종료 중이면 다음 시도에서 확인한다. */ }
+                finally { process.Dispose(); }
+            }
             Thread.Sleep(500);
         }
         throw new InvalidOperationException("관리자 권한 Agent가 시작되지 않았습니다. 작업 스케줄러와 Agent 로그를 확인해 주세요.");
+    }
+
+    private static bool ScheduledTaskTargets(string executable)
+    {
+        try
+        {
+            using var query = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Query /TN \"{ScheduledTaskName}\" /FO LIST /V")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            if (query is null) return false;
+            var output = query.StandardOutput.ReadToEnd();
+            query.WaitForExit(5000);
+            return query.ExitCode == 0 && output.Contains(Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
     }
 
     private static void DeleteScheduledStartup()
