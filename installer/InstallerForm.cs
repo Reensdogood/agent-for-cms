@@ -32,7 +32,9 @@ internal sealed class InstallerForm : Form
         _configureOnly = configureOnly;
         _updateOnly = updateOnly;
         Text = "Funnet 관악 Agent 설치";
-        Width = 560; Height = 850; MinimumSize = new Size(540, 720);
+        // 상태 결과(파일 설치/예약 작업/Agent 시작)를 반드시 볼 수 있어야
+        // 설치 실패가 무음으로 보이지 않는다.
+        Width = 560; Height = 980; MinimumSize = new Size(540, 900);
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.None;
         AutoScroll = false; Font = new Font("Segoe UI", 10F);
         BackColor = Color.FromArgb(245, 245, 247); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
@@ -84,7 +86,7 @@ internal sealed class InstallerForm : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
         panel.Controls.Add(logo);
         panel.Controls.Add(title);
         panel.Controls.Add(subtitle);
@@ -412,6 +414,16 @@ internal sealed class InstallerForm : Form
         { CreateNoWindow = true, UseShellExecute = false });
         start?.WaitForExit(5000);
         if (start is null || start.ExitCode != 0) throw new InvalidOperationException("Agent 관리자 권한 실행을 시작하지 못했습니다.");
+
+        // schtasks /Run 성공은 실행 요청이 접수됐다는 뜻일 뿐이다. 실제
+        // Agent 프로세스가 생성됐는지 확인하지 않으면 설치창만 닫히고
+        // 트레이 아이콘이 없는 상태를 성공으로 오인하게 된다.
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            if (Process.GetProcessesByName("funnet-gwanak-agent").Length > 0) return;
+            Thread.Sleep(500);
+        }
+        throw new InvalidOperationException("관리자 권한 Agent가 시작되지 않았습니다. 작업 스케줄러와 Agent 로그를 확인해 주세요.");
     }
 
     private static void DeleteScheduledStartup()
