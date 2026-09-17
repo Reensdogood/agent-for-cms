@@ -257,8 +257,13 @@ internal sealed class InstallerForm : Form
                 throw new InvalidOperationException($"i-Vision 관리자 권한 실행 작업 등록에 실패했습니다. {(_lastTaskError.Length > 0 ? _lastTaskError : "관리자 권한으로 설치기를 다시 실행해 주세요.")} ");
             StartScheduledAgent();
             _enrollmentKey.Clear();
-            ShowStatus("설치 완료 · Agent가 트레이에서 실행 중입니다.");
-            BeginInvoke(Close);
+            // 설치 결과를 확인하기 전에 창을 자동으로 닫으면, 예약 작업이나
+            // Agent 시작 실패가 사용자에게 보이지 않는다. 최종 상태를 화면에
+            // 남기고 사용자가 직접 닫도록 한다(로컬 테스트에서도 동일).
+            ShowStatus("설치 완료 · Agent 관리자 권한 실행을 요청했습니다.\r\n" +
+                       "트레이 아이콘과 서버 연결 상태를 확인한 뒤 [닫기]를 눌러 주세요.");
+            _cancelSettings.Text = "닫기";
+            _cancelSettings.Visible = true;
         }
         catch (Exception exception) { ShowStatus(exception.Message, true); }
         finally { _install.Enabled = true; }
