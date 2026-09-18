@@ -427,8 +427,19 @@ internal sealed class InstallerForm : Form
                 try
                 {
                     if (string.Equals(Path.GetFullPath(process.MainModule?.FileName ?? ""), Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase))
+                    {
+                        // 생성 직후 예외로 종료되는 경우를 성공으로 오인하지
+                        // 않도록 최소 5초 동안 동일 프로세스가 유지되는지 확인한다.
+                        for (var stableAttempt = 0; stableAttempt < 10; stableAttempt++)
+                        {
+                            Thread.Sleep(500);
+                            if (process.HasExited)
+                                throw new InvalidOperationException("Agent가 시작 직후 종료되었습니다. Agent 로그를 확인해 주세요.");
+                        }
                         return;
+                    }
                 }
+                catch (InvalidOperationException) { throw; }
                 catch { /* 프로세스가 시작/종료 중이면 다음 시도에서 확인한다. */ }
                 finally { process.Dispose(); }
             }
