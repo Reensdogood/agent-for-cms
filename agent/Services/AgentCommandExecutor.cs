@@ -39,6 +39,11 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                     "remote.input.click" => RemoteControlService.Click(command.Payload.GetProperty("x").GetInt32(), command.Payload.GetProperty("y").GetInt32()),
                     _ => throw new InvalidOperationException("지원하지 않는 명령입니다."),
                 };
+                // 자동 업데이트는 현재 Agent의 관리자 토큰을 그대로 물려받아
+                // UAC 확인 없이 설치기를 실행한다. 이 조건을 먼저 검증해야
+                // 서버에 성공으로 기록된 뒤 업데이트가 막히는 일이 없다.
+                if (result is PackageDeploymentService.AgentPackage)
+                    PackageDeploymentService.EnsureAutomaticUpdateCanRun();
                 await apiClient.CompleteCommandAsync(command.Id, true, result, cancellationToken);
                 RuntimeTrace.Write("command.success", new { command.Id, command.Type });
                 completed++;

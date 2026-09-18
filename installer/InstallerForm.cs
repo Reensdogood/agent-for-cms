@@ -11,8 +11,7 @@ internal sealed class InstallerForm : Form
     private const string RunValueName = "funnet-gwanak-agent";
     private const string ScheduledTaskName = "Funnet Gwanak Agent";
     private const string IvisionLauncherTaskName = "Funnet i-Vision Launcher";
-    private readonly TextBox _serverUrl = new() { Text = "https://agent.funnet.kr", PlaceholderText = "https://agent.funnet.kr" };
-    private readonly TextBox _enrollmentKey = new() { UseSystemPasswordChar = true, PlaceholderText = "관리자 화면에서 발급한 등록 지역 키" };
+    private readonly TextBox _serverUrl = new() { PlaceholderText = "https://agent.funnet.kr" };
     private readonly TextBox _deviceName = new() { Text = Environment.MachineName };
     private readonly ComboBox _displayModel = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly ComboBox _displayPort = new() { DropDownStyle = ComboBoxStyle.DropDown };
@@ -26,11 +25,14 @@ internal sealed class InstallerForm : Form
     private readonly bool _configureOnly;
     private readonly bool _updateOnly;
     private string _existingEnrollmentKey = "";
+    private readonly InstallerProvisioning _provisioning;
     private static string _lastTaskError = "";
     public InstallerForm(bool configureOnly = false, bool updateOnly = false)
     {
         _configureOnly = configureOnly;
         _updateOnly = updateOnly;
+        _provisioning = LoadProvisioning();
+        _serverUrl.Text = _provisioning.ServerBaseUrl;
         Text = "Funnet 관악 Agent 설치";
         // 상태 결과(파일 설치/예약 작업/Agent 시작)를 반드시 볼 수 있어야
         // 설치 실패가 무음으로 보이지 않는다.
@@ -72,7 +74,7 @@ internal sealed class InstallerForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(44, 34, 44, 42),
             ColumnCount = 1,
-            RowCount = 13,
+            RowCount = 12,
         };
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
@@ -83,7 +85,6 @@ internal sealed class InstallerForm : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
@@ -91,7 +92,6 @@ internal sealed class InstallerForm : Form
         panel.Controls.Add(title);
         panel.Controls.Add(subtitle);
         panel.Controls.Add(Field("서버 주소", _serverUrl));
-        panel.Controls.Add(Field("등록 지역 키", _enrollmentKey));
         panel.Controls.Add(Field("장비명", _deviceName));
         _displayModel.Items.AddRange(new object[] { "LH75QET", "LH65QET", "LH85QET", "LH65QBC", "LH75QBC", "LH85QBC" });
         _displayModel.SelectedIndex = 0;
@@ -105,7 +105,6 @@ internal sealed class InstallerForm : Form
         Controls.Add(panel);
         _status.Dock = DockStyle.Fill;
         StyleTextBox(_serverUrl);
-        StyleTextBox(_enrollmentKey);
         StyleTextBox(_deviceName);
         _displayPort.Dock = DockStyle.Fill;
         _displayPort.Items.AddRange(SerialPort.GetPortNames().OrderBy(x => x).Cast<object>().ToArray());
@@ -145,8 +144,6 @@ internal sealed class InstallerForm : Form
             _install.Text = "설정 저장";
             _cancelSettings.Visible = true;
             _uninstall.Text = "Agent 제거";
-            _enrollmentKey.Enabled = false;
-            _enrollmentKey.BackColor = Color.FromArgb(235, 235, 235);
             Text = "Funnet 관악 Agent 설정";
         }
         catch { }
@@ -157,6 +154,18 @@ internal sealed class InstallerForm : Form
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("FunnetLogo")
             ?? throw new InvalidOperationException("Funnet 로고가 설치기에 포함되지 않았습니다.");
         return Image.FromStream(stream);
+    }
+
+    private static InstallerProvisioning LoadProvisioning()
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("ProvisioningPayload")
+            ?? throw new InvalidOperationException("이 설치 파일의 지역 등록 정보가 없습니다. 관리자 화면에서 다시 내려받아 주세요.");
+        var provisioning = JsonSerializer.Deserialize<InstallerProvisioning>(stream)
+            ?? throw new InvalidOperationException("이 설치 파일의 지역 등록 정보를 읽을 수 없습니다. 관리자 화면에서 다시 내려받아 주세요.");
+        if (!Uri.TryCreate(provisioning.ServerBaseUrl, UriKind.Absolute, out var server) ||
+            (server.Scheme != "https" && server.Scheme != "http"))
+            throw new InvalidOperationException("이 설치 파일의 서버 정보가 올바르지 않습니다. 관리자 화면에서 다시 내려받아 주세요.");
+        return provisioning with { ServerBaseUrl = server.ToString().TrimEnd('/') };
     }
 
     private static Control Field(string label, Control input)
@@ -236,7 +245,8 @@ internal sealed class InstallerForm : Form
         }
         if (!Uri.TryCreate(_serverUrl.Text.Trim(), UriKind.Absolute, out var server) || (server.Scheme != "https" && server.Scheme != "http"))
         { ShowStatus("서버 주소를 확인해 주세요.", true); return; }
-        if (!_configureOnly && _enrollmentKey.Text.Trim().Length < 16) { ShowStatus("장비 등록 키는 16자 이상이어야 합니다.", true); return; }
+        if (!_configureOnly && _provisioning.EnrollmentKey.Trim().Length < 16)
+        { ShowStatus("이 설치 파일의 지역 등록 정보가 올바르지 않습니다. 관리자 화면에서 다시 내려받아 주세요.", true); return; }
         if (string.IsNullOrWhiteSpace(_deviceName.Text)) { ShowStatus("장비명을 입력해 주세요.", true); return; }
         _install.Enabled = false; ShowStatus("설치 중입니다…");
         try
@@ -246,7 +256,9 @@ internal sealed class InstallerForm : Form
             await using (var source = Assembly.GetExecutingAssembly().GetManifestResourceStream("AgentPayload") ?? throw new InvalidOperationException("Agent 파일이 설치기에 포함되지 않았습니다."))
             await using (var output = new FileStream(executable, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true)) await source.CopyToAsync(output);
             var port = _displayPort.Text.Trim();
-            var key = string.IsNullOrWhiteSpace(_enrollmentKey.Text) ? _existingEnrollmentKey : _enrollmentKey.Text.Trim();
+            // 신규 설치만 설치 파일에 포함된 지역 키로 등록한다. 업데이트와
+            // 설정 변경은 기존 등록 토큰을 유지하므로 다른 지역으로 재등록하지 않는다.
+            var key = _configureOnly ? _existingEnrollmentKey : _provisioning.EnrollmentKey.Trim();
             var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = key, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = _displayModel.SelectedItem?.ToString() ?? "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
             await File.WriteAllTextAsync(Path.Combine(_installDirectory, "agent-settings.json"), JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
             var setupCopy = Path.Combine(_installDirectory, "funnet-agent-setup.exe");
@@ -258,7 +270,6 @@ internal sealed class InstallerForm : Form
             if (!RegisterIvisionLauncher())
                 throw new InvalidOperationException($"i-Vision 관리자 권한 실행 작업 등록에 실패했습니다. {(_lastTaskError.Length > 0 ? _lastTaskError : "관리자 권한으로 설치기를 다시 실행해 주세요.")} ");
             StartScheduledAgent(executable);
-            _enrollmentKey.Clear();
             // 설치 결과를 확인하기 전에 창을 자동으로 닫으면, 예약 작업이나
             // Agent 시작 실패가 사용자에게 보이지 않는다. 최종 상태를 화면에
             // 남기고 사용자가 직접 닫도록 한다(로컬 테스트에서도 동일).
@@ -490,4 +501,6 @@ internal sealed class InstallerForm : Form
     }
 
     private void ShowStatus(string message, bool error = false) { _status.Text = message; _status.ForeColor = error ? Color.Firebrick : Color.DimGray; }
+
+    private sealed record InstallerProvisioning(string ServerBaseUrl, string EnrollmentKey, string? RegionName);
 }

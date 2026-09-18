@@ -12,9 +12,16 @@ internal static class Program
             MessageBox.Show("Agent 설정창이 이미 열려 있습니다.", "Funnet 관악 Agent", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
-        var update = args.Contains("--update", StringComparer.OrdinalIgnoreCase);
-        var form = new InstallerForm(args.Contains("--configure", StringComparer.OrdinalIgnoreCase) || update, update);
-        if (update) form.Shown += async (_, _) => await form.RunUpdateAsync();
-        Application.Run(form);
+        try
+        {
+            var update = args.Contains("--update", StringComparer.OrdinalIgnoreCase);
+            var form = new InstallerForm(args.Contains("--configure", StringComparer.OrdinalIgnoreCase) || update, update);
+            if (update) form.Shown += async (_, _) => await form.RunUpdateAsync();
+            Application.Run(form);
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show(error.Message, "Funnet Agent 설치", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 }

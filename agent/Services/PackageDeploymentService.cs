@@ -21,7 +21,24 @@ internal sealed class PackageDeploymentService(AgentApiClient apiClient)
 
     public static void StartAgentUpdate(AgentPackage package)
     {
-        Process.Start(new ProcessStartInfo(package.Path, "--update") { UseShellExecute = true });
+        EnsureAutomaticUpdateCanRun();
+        var installer = Process.Start(new ProcessStartInfo(package.Path, "--update")
+        {
+            // The Agent is launched by the HIGHEST scheduled task.  Starting the
+            // requireAdministrator installer directly from that elevated token
+            // keeps the update non-interactive; ShellExecute could otherwise
+            // reintroduce a UAC prompt on some Windows builds.
+            UseShellExecute = false,
+            WorkingDirectory = Path.GetDirectoryName(package.Path) ?? AppContext.BaseDirectory,
+        });
+        if (installer is null)
+            throw new InvalidOperationException("Agent 업데이트 설치기를 시작하지 못했습니다.");
+    }
+
+    public static void EnsureAutomaticUpdateCanRun()
+    {
+        if (!PrivilegedTaskBroker.IsElevated())
+            throw new InvalidOperationException("Agent가 관리자 권한으로 실행 중이 아니어서 자동 업데이트를 시작할 수 없습니다. 관리자 권한으로 Agent를 다시 설치해 주세요.");
     }
 
     internal sealed record AgentPackage(string Version, string FileName, string Path, string Sha256);

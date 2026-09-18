@@ -1,6 +1,9 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "1.0.0",
+    [Parameter(Mandatory)][string]$Version,
+    [Parameter(Mandatory)][ValidateLength(16, 512)][string]$EnrollmentKey,
+    [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$RegionName,
+    [ValidatePattern('^https?://')][string]$ServerBaseUrl = "https://agent.funnet.kr",
     [string]$OutputDirectory = "dist"
 )
 
@@ -15,13 +18,24 @@ $payloadDirectory = Join-Path $projectRoot "installer\payload"
 $installerOutput = Join-Path $distRoot "installer-build"
 New-Item -ItemType Directory -Path $agentOutput, $payloadDirectory, $installerOutput -Force | Out-Null
 
+# Credentials are embedded only in this regional installer. Do not write them to console or release notes.
+$provisioningPath = Join-Path $installerOutput "funnet-provisioning.json"
+[System.IO.File]::WriteAllText($provisioningPath, ([ordered]@{
+    serverBaseUrl = $ServerBaseUrl.TrimEnd('/')
+    enrollmentKey = $EnrollmentKey
+    regionName = $RegionName
+} | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding($false)))
+
 dotnet publish (Join-Path $projectRoot "agent\Funnet.Gwanak.Agent.csproj") -c Release -r win-x64 --self-contained true -p:Version=$Version -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o $agentOutput
 if ($LASTEXITCODE -ne 0) { throw "Agent publish failed." }
 
 $agentExe = Join-Path $agentOutput "funnet-gwanak-agent.exe"
 Copy-Item -LiteralPath $agentExe -Destination (Join-Path $payloadDirectory "funnet-gwanak-agent.exe") -Force
-dotnet publish (Join-Path $projectRoot "installer\Funnet.Gwanak.Agent.Installer.csproj") -c Release -r win-x64 --self-contained true -p:Version=$Version -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o $installerOutput
+dotnet publish (Join-Path $projectRoot "installer\Funnet.Gwanak.Agent.Installer.csproj") -c Release -r win-x64 --self-contained true -p:Version=$Version -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true "-p:FunnetProvisioningFile=$provisioningPath" -o $installerOutput
 if ($LASTEXITCODE -ne 0) { throw "Installer publish failed." }
+# The provisioning JSON has already been embedded in the single-file installer.
+# Do not leave a readable copy of the regional enrollment credential in dist.
+Remove-Item -LiteralPath $provisioningPath -Force
 
 $finalInstaller = Join-Path $distRoot "funnet-agent-setup-$Version.exe"
 Copy-Item -LiteralPath (Join-Path $installerOutput "funnet-agent-setup.exe") -Destination $finalInstaller -Force
