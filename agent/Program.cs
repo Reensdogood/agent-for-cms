@@ -12,6 +12,7 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        InstallCrashTracing();
         ApplicationConfiguration.Initialize();
         RuntimeTrace.Write("agent.main.start", new { args = args.Where(x => !x.Contains("key", StringComparison.OrdinalIgnoreCase) && !x.Contains("token", StringComparison.OrdinalIgnoreCase)).ToArray() });
 
@@ -89,7 +90,9 @@ internal static class Program
         // 설치된 Agent는 반드시 최고 권한 예약 작업의 단일 인스턴스로만 실행한다.
         // 일반 권한 인스턴스를 허용하면 I-Vision 재실행/UAC 브로커가 실패하므로
         // 작업이 없을 때도 일반 권한 트레이를 띄우지 않고 명확히 중단한다.
-        if (!PrivilegedTaskBroker.IsElevated())
+        var elevated = PrivilegedTaskBroker.IsElevated();
+        RuntimeTrace.Write("agent.elevation.check", new { elevated, taskExists = PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.AgentTask) });
+        if (!elevated)
         {
             if (PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.AgentTask))
             {
@@ -107,12 +110,37 @@ internal static class Program
         {
             // 자동 시작과 수동 실행이 겹쳐도 사용자 화면을 가로채지 않는다.
             // 기존 인스턴스가 계속 트레이에서 동작하므로 중복 실행 요청만 조용히 종료한다.
+            RuntimeTrace.Write("agent.instance.duplicate");
             return;
         }
 
-        var settings = AgentSettings.Load();
-        var identityStore = new DeviceIdentityStore();
-        Application.Run(new TrayAgentContext(settings, identityStore));
+        try
+        {
+            RuntimeTrace.Write("agent.instance.primary");
+            var settings = AgentSettings.Load();
+            RuntimeTrace.Write("agent.settings.loaded", new { settings.ServerBaseUrl, settings.LocalName });
+            var identityStore = new DeviceIdentityStore();
+            using var tray = new TrayAgentContext(settings, identityStore);
+            RuntimeTrace.Write("agent.tray.created");
+            Application.Run(tray);
+            RuntimeTrace.Write("agent.application.run.exited");
+        }
+        catch (Exception error)
+        {
+            RuntimeTrace.Write("agent.main.failure", error: error);
+            MessageBox.Show($"Agent 시작에 실패했습니다.\n\n{error.Message}\n\n실행 로그를 확인해 주세요.", "Funnet Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static void InstallCrashTracing()
+    {
+        Application.ThreadException += (_, eventArgs) => RuntimeTrace.Write("agent.ui.unhandled-exception", error: eventArgs.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) => RuntimeTrace.Write("agent.unhandled-exception", error: eventArgs.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
+        {
+            RuntimeTrace.Write("agent.task.unobserved-exception", error: eventArgs.Exception);
+            eventArgs.SetObserved();
+        };
     }
 
     private static bool IsIvisionRelatedProcess(Process process)
