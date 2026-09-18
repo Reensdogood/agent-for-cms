@@ -19,7 +19,8 @@ internal sealed class TrayAgentContext : ApplicationContext
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private DateTimeOffset _lastHeartbeat = DateTimeOffset.MinValue;
     private bool _meetingWindowWasVisible;
-    private DateTimeOffset _lastLoginAttempt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastInvitationAcceptAttempt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastUmeWindowInventory = DateTimeOffset.MinValue;
     private int _meetingVisibleSamples;
     private int _meetingMissingSamples;
     private string _status = "시작 중";
@@ -90,19 +91,39 @@ internal sealed class TrayAgentContext : ApplicationContext
             {
                 var meetingVisible = _umeController.IsMeetingWindowVisible();
                 RuntimeTrace.Write("ume.window.sample", new { meetingVisible, visibleSamples = _meetingVisibleSamples, missingSamples = _meetingMissingSamples });
+                if (_umeController.HasUmeWindows() && DateTimeOffset.Now - _lastUmeWindowInventory >= TimeSpan.FromSeconds(10))
+                {
+                    _lastUmeWindowInventory = DateTimeOffset.Now;
+                    RuntimeTrace.Write("ume.window.inventory", _umeController.CaptureWindowInventory());
+                }
                 if (meetingVisible)
                 {
                     _meetingVisibleSamples++;
                     _meetingMissingSamples = 0;
                     // OS별 창 생성 중간 상태나 일시적인 보조창을 회의창으로
                     // 오인하지 않도록 연속 3회(약 2초) 확인 후에만 상태 전환한다.
-                    if (_meetingVisibleSamples >= 3) _meetingWindowWasVisible = true;
+                    if (_meetingVisibleSamples >= 3 && !_meetingWindowWasVisible)
+                    {
+                        _meetingWindowWasVisible = true;
+                        var fullscreenApplied = _umeController.EnsureMeetingFullscreen();
+                        RuntimeTrace.Write("ume.meeting.detected", new { fullscreenApplied });
+                    }
                     SetStatus("UME 화상회의 진행 중");
                 }
                 else
                 {
                     _meetingVisibleSamples = 0;
                     _meetingMissingSamples++;
+                    // 자동 응답은 제목이 '회의 초대'인 UME 초대 팝업에서만
+                    // 녹색 참가 버튼을 찾았을 때 실행한다. 어떤 UME 창도
+                    // 매 주기 최상단으로 올리지 않으며, 연속 클릭을 막기
+                    // 위해 재시도 간격을 둔다.
+                    if (DateTimeOffset.Now - _lastInvitationAcceptAttempt >= TimeSpan.FromSeconds(3))
+                    {
+                        _lastInvitationAcceptAttempt = DateTimeOffset.Now;
+                        var accepted = await _umeController.TryClickForegroundGreenAcceptButtonAsync(cancellationToken);
+                        if (accepted) RuntimeTrace.Write("ume.invitation.accept.requested");
+                    }
                     if (_meetingWindowWasVisible && _meetingMissingSamples >= 3)
                     {
                         _meetingWindowWasVisible = false;
@@ -113,8 +134,6 @@ internal sealed class TrayAgentContext : ApplicationContext
                         _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "화상회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
                     }
                 }
-
-                // 자동 클릭은 포커스를 탈취하므로 최종 로직에서 비활성화한다.
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
             catch { }

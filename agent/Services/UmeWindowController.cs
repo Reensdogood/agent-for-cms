@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text;
+using Funnet.Gwanak.Agent.Infrastructure;
 
 namespace Funnet.Gwanak.Agent.Services;
 
@@ -32,7 +33,6 @@ internal sealed class UmeWindowController
     private const uint MouseEventFLeftUp = 0x0004;
     private static readonly IntPtr HwndTop = new(0);
     private static readonly IntPtr HwndBottom = new(1);
-    private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly IntPtr HwndNoTopmost = new(-2);
 
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr state);
@@ -192,6 +192,8 @@ internal sealed class UmeWindowController
     public bool IsMeetingWindowVisible() => FindWindows(IsUmeProcess, visibleOnly: true)
         .Select(ToWindowInfo).Any(IsMeetingWindow);
 
+    public bool HasUmeWindows() => FindWindows(IsUmeProcess, visibleOnly: false).Count > 0;
+
     public object RestoreIvisionOnly()
     {
         MinimizeClientWindows(Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty);
@@ -257,32 +259,85 @@ internal sealed class UmeWindowController
         return PromoteMeetingWindow(bounds) is not null;
     }
 
-    public async Task<bool> TryClickForegroundGreenAcceptButtonAsync(CancellationToken cancellationToken)
+    public bool EnsureMeetingFullscreen()
     {
-        if (PromoteUmePopupIfVisible()) return false;
-        var foreground = GetForegroundWindow();
         var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
         if (bounds.IsEmpty) return false;
-        if (foreground == IntPtr.Zero || !IsUmeWindow(foreground))
+        var meeting = FindWindows(IsUmeProcess, visibleOnly: true)
+            .Select(ToWindowInfo)
+            .Where(IsMeetingWindow)
+            .OrderByDescending(info => info.Bounds.Width * info.Bounds.Height)
+            .FirstOrDefault();
+        if (meeting is null) return false;
+        MakeBorderlessFullscreen(meeting.Handle, bounds);
+        RuntimeTrace.Write("ume.meeting.fullscreen.applied", new
         {
-            var hasInviteCandidate = FindBestGreenButtonTarget(bounds) is not null;
-            if (!hasInviteCandidate) return false;
-        }
-        PromoteMeetingWindow(bounds);
-        var target = FindBestGreenButtonTarget(bounds);
-        if (target is not null)
+            title = meeting.Title,
+            className = meeting.ClassName,
+            bounds = new { meeting.Bounds.X, meeting.Bounds.Y, meeting.Bounds.Width, meeting.Bounds.Height },
+            monitor = new { bounds.X, bounds.Y, bounds.Width, bounds.Height },
+        });
+        return true;
+    }
+
+    public object CaptureWindowInventory()
+    {
+        var monitor = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
+        var foreground = GetForegroundWindow();
+        List<object> windows = [];
+        EnumWindows((window, _) =>
         {
-            BringWindowToTop(target.Window);
-            SetForegroundWindow(target.Window);
-            await Task.Delay(120, cancellationToken);
-            ClickScreenPoint(target.Candidate.CenterX, target.Candidate.CenterY);
-            await Task.Delay(250, cancellationToken);
-            PromoteMeetingWindow(bounds);
+            GetWindowThreadProcessId(window, out var processId);
+            try
+            {
+                using var process = Process.GetProcessById((int)processId);
+                if (!IsUmeProcess(process)) return true;
+                var info = ToWindowInfo(window);
+                windows.Add(new
+                {
+                    handle = $"0x{window.ToInt64():X}",
+                    processId,
+                    process = process.ProcessName,
+                    visible = IsWindowVisible(window),
+                    foreground = window == foreground,
+                    info.Title,
+                    info.ClassName,
+                    bounds = new { info.Bounds.X, info.Bounds.Y, info.Bounds.Width, info.Bounds.Height },
+                    meeting = IsMeetingWindow(info),
+                    mainCandidate = IsMainWindowCandidate(info, monitor),
+                    auxiliary = IsAuxiliaryWindow(info),
+                    invitation = IsInvitationWindow(info),
+                });
+            }
+            catch { }
             return true;
-        }
-        PromoteMeetingWindow(bounds);
-        await Task.Delay(250, cancellationToken);
-        return false;
+        }, IntPtr.Zero);
+        return new { monitor = new { monitor.X, monitor.Y, monitor.Width, monitor.Height }, windows };
+    }
+
+    public async Task<bool> TryClickForegroundGreenAcceptButtonAsync(CancellationToken cancellationToken)
+    {
+        var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
+        if (bounds.IsEmpty) return false;
+        // 회의 초대창은 UME가 만든 모달 팝업이다. 이전 로직은 이 팝업을
+        // "사용자 메뉴"로 보존하려고 먼저 반환해서, 정작 초대창의 녹색
+        // 참가 버튼은 한 번도 검사하지 못했다. 제목이 명확한 초대창만
+        // 대상으로 삼아 다른 UME 메뉴나 일반 화면을 클릭하지 않는다.
+        var target = FindBestGreenInvitationTarget(bounds);
+        if (target is null) return false;
+        ShowWindow(target.Window, SwRestore);
+        BringWindowToTop(target.Window);
+        SetForegroundWindow(target.Window);
+        await Task.Delay(120, cancellationToken);
+        ClickScreenPoint(target.Candidate.CenterX, target.Candidate.CenterY);
+        RuntimeTrace.Write("ume.invitation.accept.clicked", new
+        {
+            title = target.Title,
+            center = new { target.Candidate.CenterX, target.Candidate.CenterY },
+            size = new { target.Candidate.Width, target.Candidate.Height },
+            target.Candidate.Score,
+        });
+        return true;
     }
 
     private static List<IntPtr> FindWindows(Func<Process, bool> predicate, bool visibleOnly)
@@ -336,6 +391,11 @@ internal sealed class UmeWindowController
         && (info.Title.Contains("회의", StringComparison.OrdinalIgnoreCase)
             || info.Title.Contains("meeting", StringComparison.OrdinalIgnoreCase)
             || info.Title.Contains("conference", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsInvitationWindow(WindowInfo info) =>
+        info.Title.Contains("회의 초대", StringComparison.OrdinalIgnoreCase)
+        || info.Title.Contains("meeting invitation", StringComparison.OrdinalIgnoreCase)
+        || info.Title.Contains("incoming call", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsMainWindowCandidate(WindowInfo info, Rectangle monitorBounds)
     {
@@ -471,7 +531,7 @@ internal sealed class UmeWindowController
         SetLong(window, GwlExStyle, exStyle);
         // 회의 본창은 전체화면 최상위로 유지하되 Foreground를 강제로 빼앗지 않는다.
         // UME의 모달/더보기 팝업은 별도 창으로 감지해 watcher가 본창을 재승격하지 않는다.
-        SetWindowPos(window, HwndTopmost, bounds.Left, bounds.Top, bounds.Width, bounds.Height,
+        SetWindowPos(window, HwndNoTopmost, bounds.Left, bounds.Top, bounds.Width, bounds.Height,
             SwpFrameChanged | SwpNoOwnerZOrder | SwpShowWindow);
     }
 
@@ -489,71 +549,10 @@ internal sealed class UmeWindowController
         else SetWindowLong32(window, index, (int)value);
     }
 
-    private static async Task<object> TryClickGreenAcceptButtonAsync(IntPtr window, Rectangle monitorBounds, CancellationToken cancellationToken)
-    {
-        var startedAt = DateTimeOffset.UtcNow;
-        GreenButtonCandidate? candidate = null;
-        var loginClicked = false;
-        for (var attempt = 1; attempt <= 24; attempt++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var visibleUmeWindows = FindWindows(IsUmeProcess, visibleOnly: true);
-            var activeTarget = visibleUmeWindows.Contains(window) ? window : visibleUmeWindows.FirstOrDefault();
-            if (activeTarget != IntPtr.Zero)
-            {
-                BringWindowToTop(activeTarget);
-                SetForegroundWindow(activeTarget);
-            }
-            await Task.Delay(150, cancellationToken);
-            var target = FindBestGreenButtonTarget(monitorBounds);
-            if (target is not null)
-            {
-                candidate = target.Candidate;
-                BringWindowToTop(target.Window);
-                SetForegroundWindow(target.Window);
-                await Task.Delay(80, cancellationToken);
-                ClickScreenPoint(candidate.CenterX, candidate.CenterY);
-                await Task.Delay(250, cancellationToken);
-                return new
-                {
-                    attempted = true,
-                    clicked = true,
-                    method = "green-color-detection",
-                    elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
-                    loginRecoveryClicked = loginClicked,
-                    candidate = new { candidate.CenterX, candidate.CenterY, candidate.Width, candidate.Height, candidate.Score, target.Title }
-                };
-            }
-            if (!loginClicked)
-            {
-                var loginTarget = FindBestBlueLoginButtonTarget(monitorBounds);
-                if (loginTarget is not null)
-                {
-                    loginClicked = true;
-                    BringWindowToTop(loginTarget.Window);
-                    SetForegroundWindow(loginTarget.Window);
-                    await Task.Delay(120, cancellationToken);
-                    ClickScreenPoint(loginTarget.Candidate.CenterX, loginTarget.Candidate.CenterY);
-                    await Task.Delay(700, cancellationToken);
-                }
-            }
-            await Task.Delay(100, cancellationToken);
-        }
-        return new
-        {
-            attempted = true,
-            clicked = false,
-            method = "green-color-detection",
-            elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
-            loginRecoveryClicked = loginClicked,
-            reason = "녹색 참가/수락 버튼 후보를 찾지 못했습니다."
-        };
-    }
-
-    private static GreenButtonTarget? FindBestGreenButtonTarget(Rectangle monitorBounds)
+    private static GreenButtonTarget? FindBestGreenInvitationTarget(Rectangle monitorBounds)
     {
         GreenButtonTarget? best = null;
-        foreach (var info in FindWindows(IsUmeProcess, visibleOnly: true).Select(ToWindowInfo))
+        foreach (var info in FindWindows(IsUmeProcess, visibleOnly: true).Select(ToWindowInfo).Where(IsInvitationWindow))
         {
             var candidate = FindGreenButtonCandidate(info.Handle, monitorBounds);
             if (candidate is null) continue;
