@@ -22,6 +22,7 @@ const enercareGroupId = String(process.env.ENERCARE_DWD_GROUP_ID || "FUNNET");
 const enercareServerSecret = String(process.env.ENERCARE_DWD_SERVER_SECRET || "");
 const enercareCallbackSecret = String(process.env.ENERCARE_CON_SERVER_SECRET || "");
 let enercareToken = null;
+let enercareTokenRequest = null;
 // 운영 여부와 무관하게 명시 설정을 우선한다. 내부망 HTTP(4171) 테스트에서는
 // FUNNET_COOKIE_SECURE=false로 세션 쿠키를 저장할 수 있어야 한다.
 const secureCookies = process.env.FUNNET_COOKIE_SECURE === "true";
@@ -542,17 +543,22 @@ function enercareError(message, status = 502) {
 async function enercareAccessToken(forceRefresh = false) {
   if (!enercareIsConfigured()) throw enercareError("EnerCare 연동 정보가 아직 설정되지 않았습니다.", 503);
   if (!forceRefresh && enercareToken && enercareToken.expiresAt > Date.now() + 60_000) return enercareToken.value;
-  const authorization = Buffer.from(`${enercareServerId}:${enercareServerSecret}`, "utf8").toString("base64");
-  const response = await fetch(`${enercareBaseUrl}/conn/v1/publish/servertoken`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-HIT-Version": "1.0", Authorization: `Basic ${authorization}` },
-    body: JSON.stringify({ dwd_group_id: enercareGroupId }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || !body.dwd_access_token) throw enercareError(`EnerCare 인증에 실패했습니다.${body.reason ? ` ${body.reason}` : ""}`, response.status || 502);
-  const expiresAt = Date.parse(String(body.dwd_access_token_expiredate || ""));
-  enercareToken = { value: String(body.dwd_access_token), expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 23 * 60 * 60 * 1000 };
-  return enercareToken.value;
+  if (enercareTokenRequest) return enercareTokenRequest;
+  enercareTokenRequest = (async () => {
+    const authorization = Buffer.from(`${enercareServerId}:${enercareServerSecret}`, "utf8").toString("base64");
+    const response = await fetch(`${enercareBaseUrl}/conn/v1/publish/servertoken`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-HIT-Version": "1.0", Authorization: `Basic ${authorization}` },
+      body: JSON.stringify({ dwd_group_id: enercareGroupId }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !body.dwd_access_token) throw enercareError(`EnerCare 인증에 실패했습니다.${body.reason ? ` ${body.reason}` : ""}`, response.status || 502);
+    const expiresAt = Date.parse(String(body.dwd_access_token_expiredate || ""));
+    enercareToken = { value: String(body.dwd_access_token), expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 23 * 60 * 60 * 1000 };
+    return enercareToken.value;
+  })();
+  try { return await enercareTokenRequest; }
+  finally { enercareTokenRequest = null; }
 }
 
 async function enercareRequest(endpoint, payload, retryOnInvalidToken = true) {
