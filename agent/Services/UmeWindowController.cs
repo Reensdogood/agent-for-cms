@@ -482,7 +482,11 @@ internal sealed class UmeWindowController
                 || info.Title.Equals("Hidden Window", StringComparison.OrdinalIgnoreCase)
                 || info.Title.Equals("USBCOMUSBDetect", StringComparison.OrdinalIgnoreCase)
                 || info.ClassName.Equals("Qt5158QWindowToolSaveBits", StringComparison.OrdinalIgnoreCase)
-                || info.ClassName.Equals("CmWin32SocketNotification_59168765", StringComparison.OrdinalIgnoreCase);
+                || info.ClassName.Equals("Aqua Camera Monitor", StringComparison.OrdinalIgnoreCase)
+                || info.ClassName.Equals("USBCOMUSBDetect", StringComparison.OrdinalIgnoreCase)
+                || info.ClassName.Equals("Aqua System Sleep/Wakeup Monitor", StringComparison.OrdinalIgnoreCase)
+                || info.ClassName.StartsWith("CmWin32SocketNotification_", StringComparison.OrdinalIgnoreCase)
+                || (string.IsNullOrWhiteSpace(info.Title) && info.ClassName.StartsWith("Chrome_", StringComparison.OrdinalIgnoreCase));
     }
 
     private static void SendUmeAuxiliaryWindowsToBackground()
@@ -529,7 +533,7 @@ internal sealed class UmeWindowController
         var exStyle = GetLong(window, GwlExStyle) & ~(WsExDlgModalFrame | WsExClientEdge | WsExStaticEdge);
         SetLong(window, GwlStyle, style);
         SetLong(window, GwlExStyle, exStyle);
-        // 회의 본창은 전체화면 최상위로 유지하되 Foreground를 강제로 빼앗지 않는다.
+        // 회의창만 전체 화면으로 만들고, 항상 위에 고정하지는 않는다.
         // UME의 모달/더보기 팝업은 별도 창으로 감지해 watcher가 본창을 재승격하지 않는다.
         SetWindowPos(window, HwndNoTopmost, bounds.Left, bounds.Top, bounds.Width, bounds.Height,
             SwpFrameChanged | SwpNoOwnerZOrder | SwpShowWindow);
