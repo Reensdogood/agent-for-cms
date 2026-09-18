@@ -160,7 +160,10 @@ internal sealed class InstallerForm : Form
     {
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("ProvisioningPayload")
             ?? throw new InvalidOperationException("이 설치 파일의 지역 등록 정보가 없습니다. 관리자 화면에서 다시 내려받아 주세요.");
-        var provisioning = JsonSerializer.Deserialize<InstallerProvisioning>(stream)
+        var provisioning = JsonSerializer.Deserialize<InstallerProvisioning>(stream, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+        })
             ?? throw new InvalidOperationException("이 설치 파일의 지역 등록 정보를 읽을 수 없습니다. 관리자 화면에서 다시 내려받아 주세요.");
         if (!Uri.TryCreate(provisioning.ServerBaseUrl, UriKind.Absolute, out var server) ||
             (server.Scheme != "https" && server.Scheme != "http"))
