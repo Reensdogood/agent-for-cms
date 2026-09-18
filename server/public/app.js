@@ -285,7 +285,7 @@ function renderRegionKeys() {
 }
 
 function roleLabel(role) {
-  return { admin: "전체 시스템", operator: "운영", region_manager: "지역 관리자" }[role] || role;
+  return { admin: "전체 시스템", operator: "운영", system_manager: "시스템 담당자", region_manager: "지역 관리자" }[role] || role;
 }
 
 function renderUserRegions(selectedId = "") {

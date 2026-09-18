@@ -824,6 +824,10 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/commands") {
     const session = requireAdmin(req, res);
     if (!session) return;
+    // 시스템 상태는 전체 장비의 명령 실패/미응답 내역을 포함한다. 지역 관리자는
+    // 다른 지역 장비의 운영 정보를 볼 수 없도록 조회 자체를 막고, 운영 및
+    // 시스템 담당자에게만 읽기 권한을 준다.
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 50), 1), 200);
     const rows = db.prepare(`
       SELECT commands.id, commands.device_id, commands.type, commands.status, commands.attempts,

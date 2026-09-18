@@ -116,6 +116,32 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   assert.equal(userList.status, 200);
   assert.ok((await userList.json()).users.some((user) => user.username === "dongjak-operator"));
 
+  const operatorLogin = await fetch(`${base}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "dongjak-operator", password: "region-password-123" }),
+  });
+  assert.equal(operatorLogin.status, 200);
+  const operatorCookie = operatorLogin.headers.get("set-cookie").split(";")[0];
+  const operatorSystemStatus = await fetch(`${base}/api/commands?limit=20`, { headers: { Cookie: operatorCookie } });
+  assert.equal(operatorSystemStatus.status, 200);
+
+  const regionalUser = await fetch(`${base}/api/users/${createdUser.id}`, {
+    method: "PUT",
+    headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+    body: JSON.stringify({ username: "dongjak-manager", role: "region_manager", regionId: createdRegion.id, active: true }),
+  });
+  assert.equal(regionalUser.status, 200);
+  const regionalLogin = await fetch(`${base}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "dongjak-manager", password: "region-password-123" }),
+  });
+  assert.equal(regionalLogin.status, 200);
+  const regionalCookie = regionalLogin.headers.get("set-cookie").split(";")[0];
+  const regionalSystemStatus = await fetch(`${base}/api/commands?limit=20`, { headers: { Cookie: regionalCookie } });
+  assert.equal(regionalSystemStatus.status, 403);
+
   const rejectedRegistration = await fetch(`${base}/api/agent/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Enrollment-Key": "wrong-enrollment-key" },
