@@ -72,6 +72,11 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 .22rem 
 .page { animation: materialize 300ms cubic-bezier(.2,.75,.3,1); }
 @keyframes materialize { from { opacity: 0; transform: translateY(.4rem) scale(.995); } to { opacity: 1; transform: none; } }
 .hero-copy, .page-actions, .panel-head { display: flex; align-items: end; justify-content: space-between; gap: 1.25rem; margin-bottom: 1.4rem; }
+.hero-copy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem) max-content; align-items: end; }
+.hero-copy > div { min-width: 0; }
+.hero-copy h2 { white-space: nowrap; }
+.hero-copy .region-filter { width: 100%; }
+.hero-copy #updatedAt { margin: 0; white-space: nowrap; }
 .hero-copy h2, .page-actions h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.55rem); line-height: 1.08; letter-spacing: -.04em; }
 .hero-copy p, .page-actions p, .panel-head p { margin: .4rem 0 0; color: var(--muted); font-size: .86rem; }
 .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; margin-bottom: 1.4rem; }
@@ -102,7 +107,8 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 .22rem 
 .all-clear, .empty, .empty-card { margin: 0; padding: 2.5rem; color: var(--muted); font-size: .86rem; text-align: center; }
 .card-grid > .empty-card { grid-column: 1 / -1; }
 .setup-panel { margin-top: 1rem; }
-.setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.integration-panel + .setup-panel { margin-top: 0; }
+.setup-grid { display: grid; grid-template-columns: minmax(0, 35rem); gap: 1rem; padding: 1.2rem 1.4rem; }
 .setup-grid label { margin: 0; }
 .copy-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; margin-top: .45rem; }
 .copy-field input { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .8rem; }
@@ -265,6 +271,8 @@ legend { color: #3a3a3c; font-size: .8rem; font-weight: 680; }
   .topbar { top: .5rem; margin-bottom: 1.7rem; }
   .user-chip { display: none; }
   .hero-copy, .page-actions { align-items: stretch; flex-direction: column; }
+  .hero-copy { display: flex; }
+  .hero-copy h2, .hero-copy #updatedAt { white-space: normal; }
   .summary { grid-template-columns: 1fr 1fr; }
   .summary article { min-height: 7.7rem; }
   .upload-panel, .release-card, .setup-grid, .region-key-row, .schedule-actions { grid-template-columns: 1fr; }

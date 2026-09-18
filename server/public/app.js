@@ -730,10 +730,15 @@ $("#uploadReleaseButton").addEventListener("click", async () => {
 const integrations = {
   ivision: { title: "i-vision Cloud", label: "cloud.myivision.com", url: "https://cloud.myivision.com/" },
   "ume-manager": { title: "UME 관리자", label: "uc01.fun-net.co.kr:8443", url: "https://uc01.fun-net.co.kr:8443/manager/login" },
+  "agent-install": { title: "Agent 설치 정보", label: "현장 PC 등록을 위한 서버 주소와 지역별 등록 키", url: null },
 };
 $$('[data-tool]').forEach((button) => button.addEventListener("click", () => {
-  $$('[data-tool]').forEach((item) => item.classList.toggle("active", item === button));
-  const tool = integrations[button.dataset.tool]; $("#integrationTitle").textContent = tool.title; $("#integrationUrl").textContent = tool.label; $("#integrationFrame").src = tool.url; $("#integrationFallback").href = tool.url;
+  $$('[data-tool]').forEach((item) => { const selected = item === button; item.classList.toggle("active", selected); item.setAttribute("aria-selected", String(selected)); });
+  const tool = integrations[button.dataset.tool];
+  const agentInstall = button.dataset.tool === "agent-install";
+  $("#integrationPanel").hidden = agentInstall;
+  $("#agentInstallPanel").hidden = !agentInstall;
+  if (!agentInstall) { $("#integrationTitle").textContent = tool.title; $("#integrationUrl").textContent = tool.label; $("#integrationFrame").src = tool.url; $("#integrationFallback").href = tool.url; }
 }));
 $$('[data-release-filter]').forEach((button) => button.addEventListener("click", () => {
   releaseFilter = button.dataset.releaseFilter;
