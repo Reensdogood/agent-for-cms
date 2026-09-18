@@ -661,6 +661,18 @@ $$('[data-bulk-ivision]').forEach((button) => button.addEventListener("click", a
   catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; }
 }));
+$$('[data-bulk-smart-plug]').forEach((button) => button.addEventListener("click", async () => {
+  const on = button.dataset.bulkSmartPlug === "on";
+  const targetDevices = devices.filter((device) => device.approved && device.smartPlug && device.smartPlug.connection === "online" && (selectedRegionId === "all" || device.regionId === selectedRegionId));
+  if (!await confirmAction(`현재 지역의 등록된 Online 스마트플러그 ${targetDevices.length}대를 ${on ? "ON" : "OFF"}할까요?`, "Offline 또는 미등록 스마트플러그는 제외됩니다.", `스마트플러그 ${on ? "ON" : "OFF"}`)) return;
+  button.disabled = true;
+  try {
+    const result = await api("/api/smart-plugs/bulk/power", { method: "POST", body: JSON.stringify({ on, regionId: selectedRegionId, deviceIds: targetDevices.map((device) => device.id) }) });
+    toast(`등록된 Online 스마트플러그 ${result.targeted}대 중 ${result.succeeded}대 전원 ${on ? "ON" : "OFF"} 완료${result.failed ? ` · ${result.failed}대 실패` : ""}.`, result.failed ? "error" : "success");
+    await loadDevices();
+  } catch (error) { toast(error.message, "error"); }
+  finally { button.disabled = false; }
+}));
 $$('[data-bulk-windows]').forEach((button) => button.addEventListener("click", async () => {
   if (!await confirmAction("온라인 장비 전체의 Windows를 종료할까요?", "저장하지 않은 작업이 손실될 수 있습니다. 현재 지역 필터의 온라인 승인 장비에만 전송됩니다.", "Windows 종료")) return;
   button.disabled = true;
@@ -671,8 +683,9 @@ $$('[data-bulk-windows]').forEach((button) => button.addEventListener("click", a
 $("#selectAllDevices")?.addEventListener("change", (event) => { $$(".device-select").forEach((box) => { if (!box.disabled) { box.checked = event.currentTarget.checked; box.checked ? selectedDeviceIds.add(box.dataset.deviceId) : selectedDeviceIds.delete(box.dataset.deviceId); } }); });
 $$('[data-device-bulk]').forEach((button) => button.addEventListener("click", async () => {
   const action = button.dataset.deviceBulk; const ids = [...selectedDeviceIds]; if (!ids.length) { toast("먼저 장비를 선택해 주세요.", "error"); return; }
-  const labels = { "display-status": "TV 상태 확인", "display-on": "TV 전원 ON", "display-off": "TV 전원 OFF", hdmi1: "HDMI1", hdmi2: "HDMI2", ume: "UME 실행", "ume-stop": "UME 종료", "ivision-stop": "I-Vision 종료", "ivision-restart": "I-Vision 재실행", "windows-shutdown": "Windows 종료" };
-  if (!await confirmAction(`선택한 ${ids.length}대에 ${labels[action]} 명령을 보낼까요?`, "온라인 승인 장비에만 전송됩니다.", "전송")) return;
+  const labels = { "display-status": "TV 상태 확인", "display-on": "TV 전원 ON", "display-off": "TV 전원 OFF", hdmi1: "HDMI1", hdmi2: "HDMI2", ume: "UME 실행", "ume-stop": "UME 종료", "ivision-stop": "I-Vision 종료", "ivision-restart": "I-Vision 재실행", "smart-plug-on": "스마트플러그 ON", "smart-plug-off": "스마트플러그 OFF", "windows-shutdown": "Windows 종료" };
+  const smartPlugAction = action === "smart-plug-on" || action === "smart-plug-off";
+  if (!await confirmAction(`선택한 ${ids.length}대에 ${labels[action]} 명령을 보낼까요?`, smartPlugAction ? "등록되고 Online 상태인 스마트플러그만 제어합니다." : "온라인 승인 장비에만 전송됩니다.", "전송")) return;
   button.disabled = true;
   try {
     let path, payload = { deviceIds: ids };
@@ -681,8 +694,11 @@ $$('[data-device-bulk]').forEach((button) => button.addEventListener("click", as
     else if (action === "hdmi1" || action === "hdmi2") { path = "/api/display/bulk/input"; payload.input = action.toUpperCase(); }
     else if (action === "ume" || action === "ume-stop") { path = "/api/ume/bulk"; if (action === "ume-stop") payload.action = "stop"; }
     else if (action.startsWith("ivision-")) path = `/api/ivision/bulk/${action.slice(8)}`;
+    else if (smartPlugAction) { path = "/api/smart-plugs/bulk/power"; payload.on = action === "smart-plug-on"; payload.regionId = selectedRegionId; }
     else path = "/api/windows/bulk/shutdown";
-    const result = await api(path, { method: "POST", body: JSON.stringify(payload) }); toast(`${result.queued}대에 ${labels[action]} 명령을 전송했습니다.`); if (action === "display-status") setTimeout(loadDevices, 2200);
+    const result = await api(path, { method: "POST", body: JSON.stringify(payload) });
+    toast(smartPlugAction ? `등록된 Online 스마트플러그 ${result.targeted}대 중 ${result.succeeded}대 전원 ${payload.on ? "ON" : "OFF"} 완료${result.failed ? ` · ${result.failed}대 실패` : ""}.` : `${result.queued}대에 ${labels[action]} 명령을 전송했습니다.`, smartPlugAction && result.failed ? "error" : "success");
+    if (action === "display-status") setTimeout(loadDevices, 2200); else if (smartPlugAction) await loadDevices();
   } catch (error) { toast(error.message, "error"); } finally { button.disabled = false; }
 }));
 $("#scheduleForm").addEventListener("submit", async (event) => {

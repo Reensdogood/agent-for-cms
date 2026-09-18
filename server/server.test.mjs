@@ -159,6 +159,13 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   });
   assert.equal(smartPlugPower.status, 200);
   assert.equal((await smartPlugPower.json()).smartPlug.power, "off");
+  const smartPlugBulkPower = await fetch(`${base}/api/smart-plugs/bulk/power`, {
+    method: "POST",
+    headers: { Cookie: operatorCookie, "Content-Type": "application/json", "X-CSRF-Token": operatorLoginBody.csrfToken },
+    body: JSON.stringify({ on: true, regionId: regionsBody.regions[0].id, deviceIds: [registered.deviceId] }),
+  });
+  assert.equal(smartPlugBulkPower.status, 200);
+  assert.deepEqual(await smartPlugBulkPower.json(), { targeted: 1, succeeded: 1, failed: 0, failures: [] });
 
   const regionalUser = await fetch(`${base}/api/users/${createdUser.id}`, {
     method: "PUT",
@@ -181,6 +188,12 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
     body: JSON.stringify({ enercareDeviceId: "DAWONDNS-B540_W-other" }),
   });
   assert.equal(regionalSmartPlugSave.status, 403);
+  const regionalSmartPlugBulk = await fetch(`${base}/api/smart-plugs/bulk/power`, {
+    method: "POST",
+    headers: { Cookie: regionalCookie, "Content-Type": "application/json", "X-CSRF-Token": (await regionalLogin.clone().json()).csrfToken },
+    body: JSON.stringify({ on: true, deviceIds: [registered.deviceId] }),
+  });
+  assert.equal(regionalSmartPlugBulk.status, 403);
 
   const rejectedRegistration = await fetch(`${base}/api/agent/register`, {
     method: "POST",

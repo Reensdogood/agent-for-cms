@@ -621,6 +621,31 @@ function smartPlugDto(row) {
   };
 }
 
+async function controlSmartPlugs(rows, control) {
+  const succeeded = [];
+  const failed = [];
+  // EnerCare는 분당 요청 수를 제한하므로 작은 동시성으로 제어한다.
+  for (let offset = 0; offset < rows.length; offset += 4) {
+    const batch = rows.slice(offset, offset + 4);
+    const results = await Promise.all(batch.map(async (plug) => {
+      try {
+        const response = await enercareRequest("/conn/v1/control/device/onoff", {
+          device_id: plug.enercare_device_id, control, control_time: now().replace("T", " ").slice(0, 19),
+        });
+        db.prepare("UPDATE smart_plugs SET power_status=?, connection_status='online', last_synced_at=?, last_error=NULL, updated_at=? WHERE id=?")
+          .run(control.toLowerCase(), now(), now(), plug.id);
+        return { ok: true, id: plug.id, deviceId: plug.device_id, result: response.result || control };
+      } catch (error) {
+        const message = String(error.message || "EnerCare 제어 실패").slice(0, 500);
+        db.prepare("UPDATE smart_plugs SET last_error=?, updated_at=? WHERE id=?").run(message, now(), plug.id);
+        return { ok: false, id: plug.id, deviceId: plug.device_id, error: message };
+      }
+    }));
+    for (const item of results) (item.ok ? succeeded : failed).push(item);
+  }
+  return { succeeded, failed };
+}
+
 function compareReleaseVersions(left, right) {
   const a = String(left).split(".").map(Number);
   const b = String(right).split(".").map(Number);
@@ -1392,6 +1417,41 @@ async function handleApi(req, res, url) {
     for (const item of latest) { try { const result = JSON.parse(item.result_json || "{}"); const value = result.result || {}; if (item.type === "display.status" && result.success && !statusApplied) { display = { ...display, ...value, connection: value.connection || "connected" }; checkedAt = item.completed_at; statusApplied = true; } if (!statusApplied && item.type === "display.power" && display.power === undefined) display.power = value.power; if (!statusApplied && item.type === "display.input" && display.input === undefined) display.input = value.input; if (!statusApplied && item.type === "display.volume" && display.volume === undefined) display.volume = value.volume; } catch {} }
     if (!Object.keys(display).length) display = null;
     return json(res, 200, { display, checkedAt, lastSeenAt: device.last_seen_at, online: Number.isFinite(Date.parse(device.last_seen_at || "")) && Date.now() - Date.parse(device.last_seen_at) < 120000 });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/smart-plugs/bulk/power") {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 제어는 시스템 또는 운영 관리자만 할 수 있습니다." });
+    const body = await readJson(req);
+    if (typeof body.on !== "boolean") return json(res, 400, { error: "on 값은 true 또는 false여야 합니다." });
+    const requestedRegionId = String(body.regionId || "all").trim() || "all";
+    if (requestedRegionId !== "all" && !db.prepare("SELECT id FROM regions WHERE id = ?").get(requestedRegionId)) return json(res, 400, { error: "선택한 지역을 찾을 수 없습니다." });
+    const hasDeviceIds = Array.isArray(body.deviceIds);
+    const ids = hasDeviceIds ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
+    const filters = ["devices.approved = 1", "smart_plugs.connection_status = 'online'"];
+    const args = [];
+    if (requestedRegionId !== "all") { filters.push("devices.region_id = ?"); args.push(requestedRegionId); }
+    if (hasDeviceIds) {
+      if (!ids.length) return json(res, 200, { targeted: 0, succeeded: 0, failed: 0, failures: [] });
+      filters.push(`devices.id IN (${ids.map(() => "?").join(",")})`); args.push(...ids);
+    }
+    const plugs = db.prepare(`SELECT smart_plugs.*, devices.region_id FROM smart_plugs JOIN devices ON devices.id = smart_plugs.device_id WHERE ${filters.join(" AND ")}`).all(...args);
+    const control = body.on ? "ON" : "OFF";
+    const result = await controlSmartPlugs(plugs, control);
+    audit(session.username, "smart_plug.bulk.power", "ALL", {
+      control,
+      regionId: requestedRegionId,
+      targeted: plugs.length,
+      succeeded: result.succeeded.length,
+      failed: result.failed.length,
+    });
+    return json(res, 200, {
+      targeted: plugs.length,
+      succeeded: result.succeeded.length,
+      failed: result.failed.length,
+      failures: result.failed.map((item) => ({ deviceId: item.deviceId, error: item.error })),
+    });
   }
 
   const selectedBulkMatch = url.pathname.match(/^\/api\/(health|ume)\/bulk$/i);
