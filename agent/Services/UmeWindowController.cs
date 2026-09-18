@@ -426,7 +426,20 @@ internal sealed class UmeWindowController
         SetForegroundWindow(target.Window);
         await Task.Delay(120, cancellationToken);
         ClickScreenPoint(target.Candidate.CenterX, target.Candidate.CenterY);
+        RuntimeTrace.Write("ume.login.clicked", new
+        {
+            title = target.Title,
+            center = new { target.Candidate.CenterX, target.Candidate.CenterY },
+            size = new { target.Candidate.Width, target.Candidate.Height },
+            target.Candidate.Score,
+        });
         return true;
+    }
+
+    public bool IsLoginPromptVisible()
+    {
+        var bounds = Screen.PrimaryScreen?.Bounds ?? Rectangle.Empty;
+        return !bounds.IsEmpty && FindBestBlueLoginButtonTarget(bounds) is not null;
     }
 
     private static int CountUmeProcesses()
@@ -571,13 +584,27 @@ internal sealed class UmeWindowController
         GreenButtonTarget? best = null;
         foreach (var info in FindWindows(IsUmeProcess, visibleOnly: true).Select(ToWindowInfo))
         {
-            if (!IsCompactLoginCandidate(info, monitorBounds)) continue;
+            if (!IsLoginWindowCandidate(info, monitorBounds)) continue;
             var candidate = FindButtonCandidate(info.Handle, monitorBounds, IsLoginBlue);
             if (candidate is null) continue;
+            // 전체 UME 로그인 화면의 버튼은 넓은 가로형이다. 메인 화면의
+            // 파란 기능 타일·사이드바 아이콘을 로그인 버튼으로 오인하지
+            // 않도록, 작은 창이 아닌 경우에는 이 크기를 요구한다.
+            if (!IsCompactLoginCandidate(info, monitorBounds) &&
+                (candidate.Width < 180 || candidate.Height < 32 ||
+                 candidate.CenterY < info.Bounds.Top + info.Bounds.Height * 0.35)) continue;
             var target = new GreenButtonTarget(info.Handle, info.Title, candidate);
             if (best is null || target.Candidate.Score > best.Candidate.Score) best = target;
         }
         return best;
+    }
+
+    private static bool IsLoginWindowCandidate(WindowInfo info, Rectangle monitorBounds)
+    {
+        if (IsMeetingWindow(info) || info.Bounds.Width <= 0 || info.Bounds.Height <= 0) return false;
+        if (info.Title.Contains("로그인", StringComparison.OrdinalIgnoreCase) ||
+            info.Title.Contains("login", StringComparison.OrdinalIgnoreCase)) return true;
+        return IsCompactLoginCandidate(info, monitorBounds) || IsMainWindowCandidate(info, monitorBounds);
     }
 
     private static bool IsCompactLoginCandidate(WindowInfo info, Rectangle monitorBounds)

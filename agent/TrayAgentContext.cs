@@ -20,9 +20,12 @@ internal sealed class TrayAgentContext : ApplicationContext
     private DateTimeOffset _lastHeartbeat = DateTimeOffset.MinValue;
     private bool _meetingWindowWasVisible;
     private DateTimeOffset _lastInvitationAcceptAttempt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastLoginRecoveryAttempt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastUmeWindowInventory = DateTimeOffset.MinValue;
     private DateTimeOffset _lastUmeSampleTrace = DateTimeOffset.MinValue;
     private bool? _lastTracedMeetingVisible;
+    private bool _loginRecoveryActive;
+    private int _loginRecoveryAttempts;
     private int _meetingVisibleSamples;
     private int _meetingMissingSamples;
     private string _status = "시작 중";
@@ -133,6 +136,30 @@ internal sealed class TrayAgentContext : ApplicationContext
                         _lastInvitationAcceptAttempt = DateTimeOffset.Now;
                         var accepted = await _umeController.TryClickForegroundGreenAcceptButtonAsync(cancellationToken);
                         if (accepted) RuntimeTrace.Write("ume.invitation.accept.requested");
+                    }
+                    // 자동 로그인 체크가 유지돼도 UME가 로그인 화면에 멈추는
+                    // 경우가 있다. 5초 간격으로 로그인 화면만 재확인해서
+                    // 넓은 파란 로그인 버튼을 다시 누르고, 화면이 사라지면
+                    // 복구 완료를 기록한다. 회의·장비 선택 메뉴는 대상이 아니다.
+                    if (DateTimeOffset.Now - _lastLoginRecoveryAttempt >= TimeSpan.FromSeconds(5))
+                    {
+                        _lastLoginRecoveryAttempt = DateTimeOffset.Now;
+                        if (_umeController.IsLoginPromptVisible())
+                        {
+                            var clicked = await _umeController.TryClickLoginButtonAsync(cancellationToken);
+                            if (clicked)
+                            {
+                                _loginRecoveryActive = true;
+                                _loginRecoveryAttempts++;
+                                RuntimeTrace.Write("ume.login.recovery.requested", new { attempts = _loginRecoveryAttempts });
+                            }
+                        }
+                        else if (_loginRecoveryActive)
+                        {
+                            RuntimeTrace.Write("ume.login.recovery.completed", new { attempts = _loginRecoveryAttempts });
+                            _loginRecoveryActive = false;
+                            _loginRecoveryAttempts = 0;
+                        }
                     }
                     if (_meetingWindowWasVisible && _meetingMissingSamples >= 3)
                     {
