@@ -21,6 +21,8 @@ internal sealed class TrayAgentContext : ApplicationContext
     private bool _meetingWindowWasVisible;
     private DateTimeOffset _lastInvitationAcceptAttempt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastUmeWindowInventory = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastUmeSampleTrace = DateTimeOffset.MinValue;
+    private bool? _lastTracedMeetingVisible;
     private int _meetingVisibleSamples;
     private int _meetingMissingSamples;
     private string _status = "시작 중";
@@ -90,7 +92,15 @@ internal sealed class TrayAgentContext : ApplicationContext
             try
             {
                 var meetingVisible = _umeController.IsMeetingWindowVisible();
-                RuntimeTrace.Write("ume.window.sample", new { meetingVisible, visibleSamples = _meetingVisibleSamples, missingSamples = _meetingMissingSamples });
+                // 650ms 간격의 전체 표본은 장시간 운영 시 로그를 수십 MB로
+                // 키운다. 상태 전환은 항상 남기고, 변동이 없을 때는 10초
+                // 간격만 남겨 진단 정보와 운영 부담을 함께 지킨다.
+                if (_lastTracedMeetingVisible != meetingVisible || DateTimeOffset.Now - _lastUmeSampleTrace >= TimeSpan.FromSeconds(10))
+                {
+                    _lastTracedMeetingVisible = meetingVisible;
+                    _lastUmeSampleTrace = DateTimeOffset.Now;
+                    RuntimeTrace.Write("ume.window.sample", new { meetingVisible, visibleSamples = _meetingVisibleSamples, missingSamples = _meetingMissingSamples });
+                }
                 if (_umeController.HasUmeWindows() && DateTimeOffset.Now - _lastUmeWindowInventory >= TimeSpan.FromSeconds(10))
                 {
                     _lastUmeWindowInventory = DateTimeOffset.Now;
