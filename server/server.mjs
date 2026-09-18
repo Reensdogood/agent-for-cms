@@ -539,9 +539,9 @@ function enercareError(message, status = 502) {
   return Object.assign(new Error(message), { status });
 }
 
-async function enercareAccessToken() {
+async function enercareAccessToken(forceRefresh = false) {
   if (!enercareIsConfigured()) throw enercareError("EnerCare 연동 정보가 아직 설정되지 않았습니다.", 503);
-  if (enercareToken && enercareToken.expiresAt > Date.now() + 60_000) return enercareToken.value;
+  if (!forceRefresh && enercareToken && enercareToken.expiresAt > Date.now() + 60_000) return enercareToken.value;
   const authorization = Buffer.from(`${enercareServerId}:${enercareServerSecret}`, "utf8").toString("base64");
   const response = await fetch(`${enercareBaseUrl}/conn/v1/publish/servertoken`, {
     method: "POST",
@@ -555,14 +555,21 @@ async function enercareAccessToken() {
   return enercareToken.value;
 }
 
-async function enercareRequest(endpoint, payload) {
-  const token = await enercareAccessToken();
+async function enercareRequest(endpoint, payload, retryOnInvalidToken = true) {
+  const token = await enercareAccessToken(!retryOnInvalidToken);
   const response = await fetch(`${enercareBaseUrl}${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-HIT-Version": "1.0" },
     body: JSON.stringify({ dwd_server_id: enercareServerId, dwd_access_token: token, group_id: enercareGroupId, ...payload }),
   });
   const body = await response.json().catch(() => ({}));
+  const invalidToken = response.status === 498 || /token\s+incorrect|invalid\s+token/i.test(String(body.reason || ""));
+  // 다원 서버가 토큰 만료 시각보다 먼저 토큰을 무효화하는 경우가 있어, 한 번만
+  // 새 토큰으로 재시도한다. 반복 재시도는 API 분당 요청 제한을 건드릴 수 있다.
+  if (!response.ok && invalidToken && retryOnInvalidToken) {
+    enercareToken = null;
+    return enercareRequest(endpoint, payload, false);
+  }
   if (!response.ok) throw enercareError(`EnerCare 요청에 실패했습니다.${body.reason ? ` ${body.reason}` : ""}`, response.status || 502);
   return body;
 }
