@@ -24,6 +24,10 @@ internal sealed class InstallerForm : Form
 
     private readonly bool _configureOnly;
     private readonly bool _updateOnly;
+    // 설치 파일에는 서버 주소와 지역 등록 키가 함께 포함된다. 새 설치와
+    // 자동 업데이트에서는 이를 표시하거나 수정할 이유가 없고, 트레이의
+    // [설정]으로 열었을 때만 운영자가 서버 주소를 변경할 수 있다.
+    private readonly bool _showServerAddress;
     private string _existingEnrollmentKey = "";
     private readonly InstallerProvisioning _provisioning;
     private static string _lastTaskError = "";
@@ -31,12 +35,13 @@ internal sealed class InstallerForm : Form
     {
         _configureOnly = configureOnly;
         _updateOnly = updateOnly;
+        _showServerAddress = configureOnly && !updateOnly;
         _provisioning = LoadProvisioning();
         _serverUrl.Text = _provisioning.ServerBaseUrl;
         Text = "Funnet 관악 Agent 설치";
         // 상태 결과(파일 설치/예약 작업/Agent 시작)를 반드시 볼 수 있어야
         // 설치 실패가 무음으로 보이지 않는다.
-        Width = 560; Height = 980; MinimumSize = new Size(540, 900);
+        Width = 560; Height = _showServerAddress ? 980 : 900; MinimumSize = _showServerAddress ? new Size(540, 900) : new Size(540, 820);
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.None;
         AutoScroll = false; Font = new Font("Segoe UI", 10F);
         BackColor = Color.FromArgb(245, 245, 247); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
@@ -74,12 +79,12 @@ internal sealed class InstallerForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(44, 34, 44, 42),
             ColumnCount = 1,
-            RowCount = 12,
+            RowCount = _showServerAddress ? 12 : 11,
         };
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
+        if (_showServerAddress) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
@@ -91,7 +96,7 @@ internal sealed class InstallerForm : Form
         panel.Controls.Add(logo);
         panel.Controls.Add(title);
         panel.Controls.Add(subtitle);
-        panel.Controls.Add(Field("서버 주소", _serverUrl));
+        if (_showServerAddress) panel.Controls.Add(Field("서버 주소", _serverUrl));
         panel.Controls.Add(Field("장비명", _deviceName));
         _displayModel.Items.AddRange(new object[] { "LH75QET", "LH65QET", "LH85QET", "LH65QBC", "LH75QBC", "LH85QBC" });
         _displayModel.SelectedIndex = 0;
@@ -273,13 +278,12 @@ internal sealed class InstallerForm : Form
             if (!RegisterIvisionLauncher())
                 throw new InvalidOperationException($"i-Vision 관리자 권한 실행 작업 등록에 실패했습니다. {(_lastTaskError.Length > 0 ? _lastTaskError : "관리자 권한으로 설치기를 다시 실행해 주세요.")} ");
             StartScheduledAgent(executable);
-            // 설치 결과를 확인하기 전에 창을 자동으로 닫으면, 예약 작업이나
-            // Agent 시작 실패가 사용자에게 보이지 않는다. 최종 상태를 화면에
-            // 남기고 사용자가 직접 닫도록 한다(로컬 테스트에서도 동일).
-            ShowStatus("설치 완료 · Agent 관리자 권한 실행을 요청했습니다.\r\n" +
-                       "트레이 아이콘과 서버 연결 상태를 확인한 뒤 [닫기]를 눌러 주세요.");
-            _cancelSettings.Text = "닫기";
-            _cancelSettings.Visible = true;
+            // StartScheduledAgent는 실제 Agent 프로세스가 같은 경로에서 5초
+            // 유지되는 것까지 확인한다. 확인에 성공한 운영 설치/업데이트는
+            // 사용자 입력을 기다리지 않고 닫고, 실패 때만 창과 오류를 남긴다.
+            ShowStatus("설치 완료 · Agent가 관리자 권한으로 실행되었습니다.\r\n잠시 후 설치 창을 자동으로 닫습니다.");
+            await Task.Delay(1200);
+            Close();
         }
         catch (Exception exception) { ShowStatus(exception.Message, true); }
         finally { _install.Enabled = true; }
