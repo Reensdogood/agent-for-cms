@@ -368,9 +368,10 @@ internal sealed class InstallerForm : Form
         using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
             $"/Create /TN \"{ScheduledTaskName}\" /TR \"\\\"{executable}\\\"\" /SC ONLOGON /RL HIGHEST /F")
         {
-            UseShellExecute = true,
-            Verb = "runas",
-            WindowStyle = ProcessWindowStyle.Hidden,
+            // Program has already elevated the installer. Avoid a second UAC
+            // shell launch here; Windows 10 IoT can otherwise lose task setup.
+            UseShellExecute = false,
+            CreateNoWindow = true,
         });
         task?.WaitForExit(15000);
         if (task is null || task.ExitCode != 0) throw new InvalidOperationException("Agent 관리자 권한 자동 실행 등록에 실패했습니다.");
