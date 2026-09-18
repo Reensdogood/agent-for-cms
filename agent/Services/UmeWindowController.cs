@@ -604,7 +604,14 @@ internal sealed class UmeWindowController
         if (IsMeetingWindow(info) || info.Bounds.Width <= 0 || info.Bounds.Height <= 0) return false;
         if (info.Title.Contains("로그인", StringComparison.OrdinalIgnoreCase) ||
             info.Title.Contains("login", StringComparison.OrdinalIgnoreCase)) return true;
-        return IsCompactLoginCandidate(info, monitorBounds) || IsMainWindowCandidate(info, monitorBounds);
+        if (IsCompactLoginCandidate(info, monitorBounds)) return true;
+        // Windows 11 UME global의 기본 창은 1200x825 정도로 표시돼
+        // 모니터 면적 15% 기준의 메인창 판정에는 미달한다. 제목이
+        // UME global인 정상 클라이언트 창도 넓은 로그인 버튼만 검사한다.
+        // 설정·장비 선택 등의 별도 팝업은 여기서 제외된다.
+        return info.Title.Equals("UME global", StringComparison.OrdinalIgnoreCase)
+               && info.Bounds.Width >= 700
+               && info.Bounds.Height >= 500;
     }
 
     private static bool IsCompactLoginCandidate(WindowInfo info, Rectangle monitorBounds)
