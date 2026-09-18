@@ -77,7 +77,7 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 ## 배포 패키지 빌드
 
 ```powershell
-.\scripts\Build-Release.ps1 -Version 1.0.0 -OutputDirectory dist-1.0.0
+.\scripts\Build-Release.ps1 -Version 1.0.0 -RegionName '관악' -EnrollmentKey '<해당 지역의 16자 이상 등록 키>' -OutputDirectory dist-1.0.0
 ```
 
 생성물은 지정한 배포 폴더에 만들어집니다.
@@ -86,6 +86,10 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 - `funnet-gwanak-server-1.0.0.zip`: 서버 배포 패키지
 - `SHA256SUMS.txt`: 배포 파일 해시
 - `agent-settings.example.json`: Agent 설정 예시
+
+Agent 설치 파일은 지정한 지역의 서버 주소와 등록 키를 내부에 포함한다. 일반 설치·자동 업데이트 화면에는 서버 주소나 등록 키를 표시하지 않으며, Agent가 관리자 권한 예약 작업으로 시작된 것을 확인하면 설치 창을 자동으로 닫는다. 서버 주소 변경은 트레이 아이콘의 **설정**에서만 가능하다.
+
+설치 파일은 기존 일반 권한 Agent의 자동 업데이트 호환을 위해 실행 파일 매니페스트를 `asInvoker`로 유지한다. 수동 실행 시 설치기가 즉시 Windows UAC `runas`로 자신을 다시 시작하므로, 파일 탐색기에 방패 아이콘이 없더라도 승인 후 설치·예약 작업 등록은 관리자 권한으로 수행된다.
 
 현재 설치 프로그램은 코드 서명 인증서가 없는 상태에서는 unsigned입니다. 여러 PC에 운영 배포하기 전 조직 코드 서명 인증서로 서명해야 SmartScreen과 보안 솔루션 차단 가능성을 줄일 수 있습니다.
 

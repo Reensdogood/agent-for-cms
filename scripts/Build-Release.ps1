@@ -48,6 +48,20 @@ Copy-Item -LiteralPath (Join-Path $projectRoot "deploy") -Destination $serverSta
 Copy-Item -LiteralPath (Join-Path $projectRoot "package.json"),(Join-Path $projectRoot "Dockerfile"),(Join-Path $projectRoot "compose.yaml"),(Join-Path $projectRoot ".dockerignore") -Destination $serverStage
 Compress-Archive -Path (Join-Path $serverStage "*") -DestinationPath (Join-Path $distRoot "funnet-gwanak-server-$Version.zip") -CompressionLevel Optimal
 
-$hashes = Get-ChildItem -LiteralPath $distRoot -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "{0}  {1}" -f $_.Hash, $_.Path.Substring($distRoot.Length + 1) }
+# Some field PCs still invoke Windows PowerShell versions without Get-FileHash.
+# Use the .NET crypto API directly so a valid installer is never reported as a
+# failed release merely because the hash cmdlet is unavailable.
+$hashes = Get-ChildItem -LiteralPath $distRoot -File | ForEach-Object {
+    $stream = [System.IO.File]::OpenRead($_.FullName)
+    try {
+        $algorithm = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = ([System.BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '')
+            "{0}  {1}" -f $hash, $_.FullName.Substring($distRoot.Length + 1)
+        }
+        finally { $algorithm.Dispose() }
+    }
+    finally { $stream.Dispose() }
+}
 $hashes | Set-Content -LiteralPath (Join-Path $distRoot "SHA256SUMS.txt") -Encoding utf8
 Write-Host "Release created at $distRoot"

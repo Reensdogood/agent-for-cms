@@ -2,9 +2,9 @@
 
 ## Agent
 
-1. `scripts/Build-Release.ps1 -Version <version>`으로 self-contained `win-x64` 패키지를 생성한다.
+1. `scripts/Build-Release.ps1 -Version <version> -RegionName '<지역명>' -EnrollmentKey '<해당 지역 등록 키>'`로 지역 전용 self-contained `win-x64` 패키지를 생성한다.
 2. 대상 PC에 `funnet-gwanak-agent-setup-<version>.exe`를 설치한다.
-3. 설치 후 `agent-settings.json`의 서버 URL과 enrollment key를 입력하고, 실제 장치가 연결된 경우에만 다음 설정을 활성화한다.
+3. 설치 파일에 서버 URL과 enrollment key가 포함되어 있으므로 설치 중 입력하지 않는다. 성공적으로 관리자 권한 Agent 시작을 확인하면 설치 창은 자동으로 닫힌다. 서버 URL 변경은 트레이 아이콘의 설정에서만 한다.
 
 ```json
 {
