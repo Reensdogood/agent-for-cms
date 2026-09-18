@@ -129,6 +129,7 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
     body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "동작 신규 장비", machineName: "NEW-KEY", agentVersion: "1.0.0" }),
   });
   assert.equal(acceptedRegistration.status, 201);
+  const acceptedRegionDevice = await acceptedRegistration.json();
 
   const rotateDefault = await fetch(`${base}/api/regions/${regionsBody.regions[0].id}/rotate-key`, {
     method: "POST",
@@ -182,10 +183,58 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   const packageCommands = await fetch(`${base}/api/agent/commands`, { headers: { Authorization: `Bearer ${registered.deviceToken}` } });
   assert.equal((await packageCommands.json()).commands[0].type, "ume.package.download");
 
+  const agentPackage = Buffer.from("regional-agent-installer");
+  const agentUpload = await fetch(`${base}/api/releases/upload`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken,
+      "X-File-Name": encodeURIComponent("funnet-agent-setup-51.0.0.exe"),
+      "X-Region-Id": regionsBody.regions[0].id,
+    },
+    body: agentPackage,
+  });
+  assert.equal(agentUpload.status, 201);
+  const defaultAgentRelease = (await agentUpload.json()).release;
+  assert.equal(defaultAgentRelease.regionId, regionsBody.regions[0].id);
+
+  const secondRegionAgentUpload = await fetch(`${base}/api/releases/upload`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken,
+      "X-File-Name": encodeURIComponent("funnet-agent-setup-51.0.0.exe"),
+      "X-Region-Id": createdRegion.id,
+    },
+    body: agentPackage,
+  });
+  assert.equal(secondRegionAgentUpload.status, 201);
+
+  const adminAgentDownload = await fetch(`${base}/api/releases/${defaultAgentRelease.id}/download`, { headers: { Cookie: cookie } });
+  assert.equal(adminAgentDownload.status, 200);
+  assert.deepEqual(Buffer.from(await adminAgentDownload.arrayBuffer()), agentPackage);
+
+  const wrongRegionDownload = await fetch(`${base}/api/agent/releases/${defaultAgentRelease.id}/download`, {
+    headers: { Authorization: `Bearer ${acceptedRegionDevice.deviceToken}` },
+  });
+  assert.equal(wrongRegionDownload.status, 403);
+
+  const regionalDistribute = await fetch(`${base}/api/releases/${defaultAgentRelease.id}/distribute`, {
+    method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken }, body: "{}",
+  });
+  assert.equal(regionalDistribute.status, 202);
+  assert.equal((await regionalDistribute.json()).queued, 1);
+
+  const deliveredAgentPackage = await fetch(`${base}/api/agent/commands`, { headers: { Authorization: `Bearer ${registered.deviceToken}` } });
+  const deliveredAgentCommand = (await deliveredAgentPackage.json()).commands[0];
+  assert.equal(deliveredAgentCommand.type, "agent.package.download");
+  const completedAgentPackage = await fetch(`${base}/api/agent/commands/${deliveredAgentCommand.id}/result`, {
+    method: "POST", headers: { Authorization: `Bearer ${registered.deviceToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ success: true }),
+  });
+  assert.equal(completedAgentPackage.status, 200);
+
   const commandHistory = await fetch(`${base}/api/commands?limit=5`, { headers: { Cookie: cookie } });
   assert.equal(commandHistory.status, 200);
   const commandHistoryBody = await commandHistory.json();
-  assert.equal(commandHistoryBody.commands[0].type, "ume.package.download");
+  assert.equal(commandHistoryBody.commands[0].type, "agent.package.download");
   assert.equal(commandHistoryBody.commands[0].deviceName, "관악-001");
 
   const scheduleCreate = await fetch(`${base}/api/schedules`, {

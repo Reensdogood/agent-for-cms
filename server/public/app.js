@@ -259,6 +259,8 @@ async function loadEnrollmentInfo() {
   regionInfo = await api("/api/regions");
   ["dashboardRegionFilter", "deviceRegionFilter", "scheduleRegionFilter"].forEach((id) => { const select = $(`#${id}`); if (!select) return; select.replaceChildren(new Option("전체 지역", "all"), ...regionInfo.regions.map((region) => new Option(region.name, region.id))); select.value = selectedRegionId; });
   $("#agentServerUrl").value = regionInfo.serverBaseUrl;
+  const releaseRegion = $("#releaseRegion");
+  if (releaseRegion) releaseRegion.replaceChildren(new Option("Agent 대상 지역 선택", ""), ...regionInfo.regions.map((region) => new Option(region.name, region.id)));
   renderRegionKeys();
 }
 
@@ -419,10 +421,12 @@ function renderReleases() {
     const icon = textElement("div", `package-icon ${isAgent ? "agent-icon" : "ume-icon"}`, isAgent ? "Agent" : "UME");
     const info = document.createElement("div");
     info.className = "release-info";
-    info.append(textElement("h3", "", `${isAgent ? "Agent" : "UME"} ${release.version}`), textElement("p", "", `${release.fileName} · ${formatBytes(release.sizeBytes)}`), textElement("code", "hash", `SHA-256 ${release.sha256}`), textElement("small", "", `${release.createdBy} · ${formatTime(release.createdAt)}`));
-    const distribute = textElement("button", "", "전체 장비에 배포");
+    const regionLabel = isAgent ? (release.regionName || "기존 전역 파일") : "전체 지역";
+    info.append(textElement("h3", "", `${isAgent ? "Agent" : "UME"} ${release.version}`), textElement("p", "", `${release.fileName} · ${formatBytes(release.sizeBytes)} · ${regionLabel}`), textElement("code", "hash", `SHA-256 ${release.sha256}`), textElement("small", "", `${release.createdBy} · ${formatTime(release.createdAt)}`));
+    const distribute = textElement("button", "", release.regionName ? `${release.regionName} 장비에 배포` : "전체 장비에 배포");
     distribute.addEventListener("click", async () => {
-      if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version}을 배포할까요?`, isAgent ? "승인된 모든 에이전트가 SHA-256 검증 후 자동으로 업데이트됩니다." : "승인된 모든 PC가 설치파일을 다운로드하고 전자서명을 검증합니다.", "배포")) return;
+      const target = release.regionName ? `${release.regionName} 지역의 승인 장비` : "승인된 모든 장비";
+      if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version}을 배포할까요?`, isAgent ? `${target}가 SHA-256 검증 후 자동으로 업데이트됩니다.` : `${target}가 설치파일을 다운로드하고 전자서명을 검증합니다.`, "배포")) return;
       distribute.disabled = true;
       try { const result = await api(`/api/releases/${release.id}/distribute`, { method: "POST", body: "{}" }); toast(`${result.queued}대에 다운로드 명령을 보냈습니다.`); }
       catch (error) { toast(error.message, "error"); }
@@ -430,7 +434,13 @@ function renderReleases() {
     });
     const remove = textElement("button", "small danger", "삭제");
     remove.addEventListener("click", async () => { if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version} 파일을 삭제할까요?`, isAgent ? "이 Agent 버전의 대기 중인 업데이트 명령과 파일을 함께 삭제합니다." : "배포 대기 중인 UME 파일은 삭제할 수 없습니다.", "삭제")) return; try { const result = await api(`/api/releases/${release.id}`, { method: "DELETE" }); await loadReleases(); toast(result.removedCommands ? `업데이트 파일과 대기 명령 ${result.removedCommands}건을 삭제했습니다.` : "업데이트 파일을 삭제했습니다."); } catch (error) { toast(error.message, "error"); } });
-    const actions = textElement("div", "release-actions", ""); actions.append(distribute, remove);
+    const actions = textElement("div", "release-actions", "");
+    if (isAgent) {
+      const download = textElement("button", "secondary", "설치 파일 다운로드");
+      download.addEventListener("click", () => { window.location.assign(`/api/releases/${release.id}/download`); });
+      actions.append(download);
+    }
+    actions.append(distribute, remove);
     card.append(icon, info, actions); return card;
   }));
 }
@@ -623,10 +633,13 @@ $("#scheduleForm").addEventListener("submit", async (event) => {
 $("#releaseFile").addEventListener("change", () => { const file = $("#releaseFile").files[0]; $("#uploadReleaseButton").disabled = !file; $("#selectedReleaseFile").textContent = file ? `선택 파일: ${file.name}` : "선택된 파일 없음"; });
 $("#uploadReleaseButton").addEventListener("click", async () => {
   const file = $("#releaseFile").files[0]; if (!file) return;
+  const isAgent = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(file.name);
+  const regionId = $("#releaseRegion").value;
+  if (isAgent && !regionId) { toast("Agent 설치 파일의 대상 지역을 선택해 주세요.", "error"); return; }
   const button = $("#uploadReleaseButton"); const progress = $("#uploadProgress");
   button.disabled = true; button.textContent = "업로드 중…"; progress.hidden = false; progress.removeAttribute("value");
   try {
-    await api("/api/releases/upload", { method: "POST", headers: { "X-File-Name": encodeURIComponent(file.name) }, body: file });
+    await api("/api/releases/upload", { method: "POST", headers: { "X-File-Name": encodeURIComponent(file.name), ...(isAgent ? { "X-Region-Id": regionId } : {}) }, body: file });
     $("#releaseFile").value = ""; $("#selectedReleaseFile").textContent = "선택된 파일 없음"; await loadReleases(); toast("업데이트 파일을 등록했습니다.");
   } catch (error) { handleError(error); }
   finally { button.disabled = false; button.textContent = "업로드"; progress.hidden = true; progress.value = 0; }

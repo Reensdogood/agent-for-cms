@@ -91,13 +91,15 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS releases (
     id TEXT PRIMARY KEY,
-    version TEXT NOT NULL UNIQUE,
+    version TEXT NOT NULL,
+    region_id TEXT,
     file_name TEXT NOT NULL,
     file_path TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    UNIQUE (version, region_id, file_name)
   );
 
   CREATE TABLE IF NOT EXISTS schedules (
@@ -141,6 +143,7 @@ ensureColumn("users", "active", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("schedules", "region_ids_json", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("users", "updated_at", "TEXT");
 db.prepare("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''").run();
+migrateReleasesSchema();
 seedDefaultRegion();
 
 seedAdmin();
@@ -265,6 +268,41 @@ function seedAdmin() {
     db.prepare("INSERT INTO users (username, password_hash, role, active, created_at, updated_at) VALUES (?, ?, 'admin', 1, ?, ?)")
       .run(adminUser, hashPassword(adminPassword), timestamp, timestamp);
   }
+}
+
+// 1.5.0 installers are built with one enrollment key per region.  Older
+// databases made `version` globally unique, which cannot store two regional
+// packages of the same Agent version.  Rebuild this isolated table in-place;
+// commands refer to release ids only inside JSON, so no foreign key is lost.
+function migrateReleasesSchema() {
+  const columns = db.prepare("PRAGMA table_info(releases)").all();
+  const hasRegion = columns.some((column) => column.name === "region_id");
+  const hasVersionOnlyUnique = db.prepare("PRAGMA index_list(releases)").all().some((index) => {
+    if (!index.unique) return false;
+    const indexed = db.prepare(`PRAGMA index_info(${index.name})`).all();
+    return indexed.length === 1 && indexed[0].name === "version";
+  });
+  if (hasRegion && !hasVersionOnlyUnique) return;
+  db.exec(`
+    BEGIN;
+    CREATE TABLE releases_next (
+      id TEXT PRIMARY KEY,
+      version TEXT NOT NULL,
+      region_id TEXT,
+      file_name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      sha256 TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (version, region_id, file_name)
+    );
+    INSERT INTO releases_next (id, version, region_id, file_name, file_path, size_bytes, sha256, created_by, created_at)
+      SELECT id, version, ${hasRegion ? "region_id" : "NULL"}, file_name, file_path, size_bytes, sha256, created_by, created_at FROM releases;
+    DROP TABLE releases;
+    ALTER TABLE releases_next RENAME TO releases;
+    COMMIT;
+  `);
 }
 
 function json(res, status, body, extraHeaders = {}) {
@@ -407,6 +445,35 @@ function compareReleaseVersions(left, right) {
     if (delta) return delta;
   }
   return 0;
+}
+
+function isAgentReleaseName(fileName) {
+  return /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(fileName);
+}
+
+function releaseDto(row) {
+  return {
+    id: row.id,
+    version: row.version,
+    fileName: row.file_name,
+    sizeBytes: row.size_bytes,
+    sha256: row.sha256,
+    regionId: row.region_id || null,
+    regionName: row.region_name || null,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+function streamRelease(res, release) {
+  res.writeHead(200, {
+    "Content-Type": "application/octet-stream",
+    "Content-Length": release.size_bytes,
+    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(release.file_name)}`,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store",
+  });
+  return fs.createReadStream(release.file_path).pipe(res);
 }
 
 function humanizeOsVersion(value, edition, displayVersion, buildValue, revisionValue) {
@@ -745,11 +812,13 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/releases") {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const releases = db.prepare("SELECT id, version, file_name, size_bytes, sha256, created_by, created_at FROM releases ORDER BY created_at DESC").all();
-    return json(res, 200, { releases: releases.map((item) => ({
-      id: item.id, version: item.version, fileName: item.file_name, sizeBytes: item.size_bytes,
-      sha256: item.sha256, createdBy: item.created_by, createdAt: item.created_at,
-    })) });
+    const scope = sameRegionOnly(session) ? "WHERE releases.region_id = ?" : "";
+    const releases = db.prepare(`
+      SELECT releases.*, regions.name AS region_name
+      FROM releases LEFT JOIN regions ON regions.id = releases.region_id
+      ${scope} ORDER BY releases.created_at DESC
+    `).all(...(sameRegionOnly(session) ? [session.regionId] : []));
+    return json(res, 200, { releases: releases.map(releaseDto) });
   }
 
   if (req.method === "GET" && url.pathname === "/api/commands") {
@@ -787,22 +856,28 @@ async function handleApi(req, res, url) {
     const fileName = path.basename(decodeURIComponent(String(req.headers["x-file-name"] || "")));
     const match = /^(UME-release|Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-([0-9]+(?:\.[0-9]+){1,3})(?:\+[^\\/]+)?\.exe$/i.exec(fileName);
     if (!match) return json(res, 400, { error: "파일명은 UME-release-{버전}.exe 또는 funnet-agent-setup-{버전}.exe 형식이어야 합니다." });
-    if (db.prepare("SELECT id FROM releases WHERE version = ?").get(match[2])) {
-      return json(res, 409, { error: "이미 등록된 UME 버전입니다." });
+    const isAgentRelease = isAgentReleaseName(fileName);
+    const requestedRegionId = String(req.headers["x-region-id"] || "").trim();
+    if (isAgentRelease && !requestedRegionId) return json(res, 400, { error: "Agent 설치 파일은 대상 지역을 선택해야 합니다." });
+    const regionId = isAgentRelease ? requestedRegionId : null;
+    const region = regionId ? db.prepare("SELECT id, name FROM regions WHERE id = ?").get(regionId) : null;
+    if (regionId && !region) return json(res, 400, { error: "대상 지역을 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && regionId !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 등록할 수 있습니다." });
+    if (db.prepare("SELECT id FROM releases WHERE version = ? AND file_name = ? AND ((region_id = ?) OR (region_id IS NULL AND ? IS NULL))").get(match[2], fileName, regionId, regionId)) {
+      return json(res, 409, { error: "해당 지역에 같은 버전의 파일이 이미 등록되어 있습니다." });
     }
     const id = crypto.randomUUID();
     const storedName = `${id}.exe`;
     const destination = path.join(releaseDir, storedName);
     const saved = await saveUpload(req, destination);
     const timestamp = now();
-    db.prepare("INSERT INTO releases (id, version, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, match[2], fileName, destination, saved.size, saved.sha256, session.username, timestamp);
-    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(fileName);
+    db.prepare("INSERT INTO releases (id, version, region_id, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, match[2], regionId, fileName, destination, saved.size, saved.sha256, session.username, timestamp);
     let removedOlderAgentReleases = 0;
     if (isAgentRelease) {
-      const older = db.prepare("SELECT id, file_path, version FROM releases WHERE id <> ?").all(id)
+      const older = db.prepare("SELECT id, file_path, version FROM releases WHERE id <> ? AND region_id = ?").all(id, regionId)
         .filter((item) => compareReleaseVersions(item.version, match[2]) < 0)
-        .filter((item) => /agent/i.test(String(db.prepare("SELECT file_name FROM releases WHERE id = ?").get(item.id)?.file_name || "")));
+        .filter((item) => isAgentReleaseName(String(db.prepare("SELECT file_name FROM releases WHERE id = ?").get(item.id)?.file_name || "")));
       for (const item of older) {
         db.prepare("DELETE FROM commands WHERE type = 'agent.package.download' AND status IN ('pending','delivered') AND payload_json LIKE ?").run(`%${item.id}%`);
         db.prepare("DELETE FROM releases WHERE id = ?").run(item.id);
@@ -810,8 +885,20 @@ async function handleApi(req, res, url) {
         removedOlderAgentReleases += 1;
       }
     }
-    audit(session.username, "release.upload", id, { version: match[2], fileName, ...saved, removedOlderAgentReleases });
-    return json(res, 201, { release: { id, version: match[2], fileName, sizeBytes: saved.size, sha256: saved.sha256, createdAt: timestamp }, removedOlderAgentReleases });
+    audit(session.username, "release.upload", id, { version: match[2], fileName, regionId, ...saved, removedOlderAgentReleases });
+    return json(res, 201, { release: releaseDto({ id, version: match[2], file_name: fileName, size_bytes: saved.size, sha256: saved.sha256, region_id: regionId, region_name: region?.name, created_by: session.username, created_at: timestamp }), removedOlderAgentReleases });
+  }
+
+  const releaseInstallerDownloadMatch = url.pathname.match(/^\/api\/releases\/([a-f0-9-]+)\/download$/i);
+  if (req.method === "GET" && releaseInstallerDownloadMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseInstallerDownloadMatch[1]);
+    if (!release || !fs.existsSync(release.file_path)) return json(res, 404, { error: "배포 파일을 찾을 수 없습니다." });
+    if (!isAgentReleaseName(release.file_name)) return json(res, 400, { error: "Agent 설치 파일만 내려받을 수 있습니다." });
+    if (sameRegionOnly(session) && release.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 내려받을 수 있습니다." });
+    audit(session.username, "release.download", release.id, { version: release.version, regionId: release.region_id });
+    return streamRelease(res, release);
   }
 
   const releaseDownloadMatch = url.pathname.match(/^\/api\/agent\/releases\/([a-f0-9-]+)\/download$/i);
@@ -820,14 +907,8 @@ async function handleApi(req, res, url) {
     if (!device) return;
     const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseDownloadMatch[1]);
     if (!release || !fs.existsSync(release.file_path)) return json(res, 404, { error: "배포 파일을 찾을 수 없습니다." });
-    res.writeHead(200, {
-      "Content-Type": "application/octet-stream",
-      "Content-Length": release.size_bytes,
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(release.file_name)}`,
-      "X-Content-Type-Options": "nosniff",
-      "Cache-Control": "private, no-store",
-    });
-    return fs.createReadStream(release.file_path).pipe(res);
+    if (release.region_id && release.region_id !== device.region_id) return json(res, 403, { error: "다른 지역의 Agent 설치 파일은 내려받을 수 없습니다." });
+    return streamRelease(res, release);
   }
 
   const releaseDistributeMatch = url.pathname.match(/^\/api\/releases\/([a-f0-9-]+)\/distribute$/i);
@@ -839,11 +920,14 @@ async function handleApi(req, res, url) {
     if (!release) return json(res, 404, { error: "배포 파일을 찾을 수 없습니다." });
     const body = await readJson(req);
     const requestedIds = Array.isArray(body.deviceIds) ? body.deviceIds.map(String) : [];
-    const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
+    if (sameRegionOnly(session) && release.region_id && release.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 배포할 수 있습니다." });
+    const releaseScope = release.region_id ? " AND region_id = ?" : "";
+    const roleScope = sameRegionOnly(session) ? " AND region_id = ?" : "";
+    const scopeArgs = [...(release.region_id ? [release.region_id] : []), ...(sameRegionOnly(session) ? [session.regionId] : [])];
     const devices = requestedIds.length
-      ? db.prepare(`SELECT id FROM devices WHERE approved = 1${scope} AND id IN (${requestedIds.map(() => "?").join(",")})`).all(...(sameRegionOnly(session) ? [session.regionId] : []), ...requestedIds)
-      : db.prepare(`SELECT id FROM devices WHERE approved = 1${scope}`).all(...(sameRegionOnly(session) ? [session.regionId] : []));
-    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.file_name);
+      ? db.prepare(`SELECT id FROM devices WHERE approved = 1${releaseScope}${roleScope} AND id IN (${requestedIds.map(() => "?").join(",")})`).all(...scopeArgs, ...requestedIds)
+      : db.prepare(`SELECT id FROM devices WHERE approved = 1${releaseScope}${roleScope}`).all(...scopeArgs);
+    const isAgentRelease = isAgentReleaseName(release.file_name);
     const commandType = isAgentRelease ? "agent.package.download" : "ume.package.download";
     // 구버전 Agent(1.3.x 포함)는 표준화된 funnet-agent-setup 이름을
     // 허용하지 않고 Funnet.Gwanak.Agent 접두사만 인식한다. 실제 다운로드는
@@ -859,7 +943,7 @@ async function handleApi(req, res, url) {
       sizeBytes: release.size_bytes, sha256: release.sha256,
       downloadPath: `/api/agent/releases/${release.id}/download`,
     }), createdAt);
-    audit(session.username, "release.distribute", release.id, { version: release.version, deviceCount: devices.length });
+    audit(session.username, "release.distribute", release.id, { version: release.version, regionId: release.region_id, deviceCount: devices.length });
     return json(res, 202, { queued: devices.length });
   }
 

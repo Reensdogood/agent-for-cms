@@ -95,7 +95,7 @@
         <section class="page" data-page="releases" hidden>
           <div class="page-actions"><div><h2>업데이트 배포</h2><p>UME와 Agent 업데이트 파일을 등록하고 승인된 장비에 배포합니다.</p></div></div>
           <div class="segment"><button class="active" data-release-filter="all">전체</button><button data-release-filter="ume">UME 배포</button><button data-release-filter="agent">Agent 업데이트</button></div>
-          <section class="panel upload-panel"><div><h3>새 버전 등록</h3><p><code>UME-release-버전.exe</code> 또는 <code>funnet-agent-setup-버전.exe</code> 파일을 선택하세요.</p></div><label class="file-button">파일 선택<input id="releaseFile" type="file" accept=".exe"></label><span id="selectedReleaseFile" class="selected-file">선택된 파일 없음</span><button id="uploadReleaseButton" disabled>업로드</button><progress id="uploadProgress" max="100" value="0" hidden></progress></section>
+          <section class="panel upload-panel"><div><h3>새 버전 등록</h3><p><code>UME-release-버전.exe</code> 또는 지역별 <code>funnet-agent-setup-버전.exe</code> 파일을 선택하세요.</p></div><label>Agent 대상 지역<select id="releaseRegion" aria-label="Agent 설치 파일 대상 지역"></select></label><label class="file-button">파일 선택<input id="releaseFile" type="file" accept=".exe"></label><span id="selectedReleaseFile" class="selected-file">선택된 파일 없음</span><button id="uploadReleaseButton" disabled>업로드</button><progress id="uploadProgress" max="100" value="0" hidden></progress></section>
           <div id="releaseList" class="release-list"></div>
         </section>
 
