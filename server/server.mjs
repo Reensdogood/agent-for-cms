@@ -16,6 +16,12 @@ const port = Number(process.env.PORT || 4170);
 const adminUser = process.env.FUNNET_ADMIN_USER || "admin";
 const adminPassword = process.env.FUNNET_ADMIN_PASSWORD;
 const enrollmentKey = process.env.FUNNET_ENROLLMENT_KEY;
+const enercareBaseUrl = String(process.env.ENERCARE_BASE_URL || "https://dwcon.enercare.co.kr:18443").replace(/\/$/, "");
+const enercareServerId = String(process.env.ENERCARE_DWD_SERVER_ID || "FUNNET");
+const enercareGroupId = String(process.env.ENERCARE_DWD_GROUP_ID || "FUNNET");
+const enercareServerSecret = String(process.env.ENERCARE_DWD_SERVER_SECRET || "");
+const enercareCallbackSecret = String(process.env.ENERCARE_CON_SERVER_SECRET || "");
+let enercareToken = null;
 // 운영 여부와 무관하게 명시 설정을 우선한다. 내부망 HTTP(4171) 테스트에서는
 // FUNNET_COOKIE_SECURE=false로 세션 쿠키를 저장할 수 있어야 한다.
 const secureCookies = process.env.FUNNET_COOKIE_SECURE === "true";
@@ -134,6 +140,36 @@ db.exec(`
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS smart_plugs (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL UNIQUE REFERENCES devices(id) ON DELETE CASCADE,
+    enercare_device_id TEXT NOT NULL UNIQUE,
+    low_group_id TEXT NOT NULL DEFAULT '',
+    sub_group_id TEXT NOT NULL DEFAULT '',
+    display_name TEXT NOT NULL DEFAULT '',
+    connection_status TEXT,
+    power_status TEXT,
+    last_synced_at TEXT,
+    last_error TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS enercare_group_options (
+    low_group_id TEXT NOT NULL,
+    low_group_name TEXT NOT NULL,
+    sub_group_id TEXT NOT NULL DEFAULT '',
+    sub_group_name TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (low_group_id, sub_group_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS enercare_callback_tokens (
+    token_hash TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
 `);
 
 ensureColumn("commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
@@ -145,6 +181,7 @@ ensureColumn("users", "updated_at", "TEXT");
 db.prepare("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''").run();
 migrateReleasesSchema();
 seedDefaultRegion();
+seedEnercareGroupOptions();
 
 seedAdmin();
 
@@ -231,6 +268,10 @@ function canOperate(session) {
   return ["admin", "operator", "region_manager", "system_manager"].includes(session?.role);
 }
 
+function canManageSmartPlugs(session) {
+  return ["admin", "operator", "system_manager"].includes(session?.role);
+}
+
 function sameRegionOnly(session) {
   return session?.role === "region_manager";
 }
@@ -268,6 +309,24 @@ function seedAdmin() {
     db.prepare("INSERT INTO users (username, password_hash, role, active, created_at, updated_at) VALUES (?, ?, 'admin', 1, ?, ?)")
       .run(adminUser, hashPassword(adminPassword), timestamp, timestamp);
   }
+}
+
+function seedEnercareGroupOptions() {
+  const rows = [
+    ["GM", "광명", "A-GM", "A그룹-광명(광명,철산,학온)"],
+    ["GM", "광명", "B-GM", "B그룹-광명(소하,일직,하안)"],
+    ["GM", "광명", "", "ALL 전체"],
+    ["GWANAK9", "관악구", "", "ALL 전체"],
+    ["SSCH", "스마트경로당", "DALSEO", "달서구스마트경로당"],
+    ["SSCH", "스마트경로당", "GANGJIN", "강진 스마트경로당"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "YS-I", "유성아이돌봄센터"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "YS-ST", "유성구 스튜디오"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "YS-T", "유성구 지역아동센터"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "YS-YOUTH", "유성구 청소년 시설"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "", "ALL 전체"],
+  ];
+  const insert = db.prepare("INSERT OR IGNORE INTO enercare_group_options (low_group_id, low_group_name, sub_group_id, sub_group_name) VALUES (?, ?, ?, ?)");
+  for (const row of rows) insert.run(...row);
 }
 
 // 1.5.0 installers are built with one enrollment key per region.  Older
@@ -437,6 +496,118 @@ function statusFor(lastSeenAt) {
   return "offline";
 }
 
+function equalSecret(left, right) {
+  const a = Buffer.from(String(left || ""), "utf8");
+  const b = Buffer.from(String(right || ""), "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+async function handleEnercareCallback(req, res, url) {
+  if (req.method === "POST" && url.pathname === "/conn/v1/publish/servertoken") {
+    if (!enercareCallbackSecret) return json(res, 503, { reason: "EnerCare callback secret is not configured" });
+    const header = String(req.headers.authorization || "");
+    const encoded = header.startsWith("Basic ") ? header.slice(6) : "";
+    const decoded = encoded ? Buffer.from(encoded, "base64").toString("utf8") : "";
+    const [serverId, suppliedSecret] = decoded.split(/:(.*)/s);
+    if (serverId !== enercareServerId || !equalSecret(suppliedSecret, enercareCallbackSecret)) return json(res, 401, { reason: "Unauthorized" });
+    const token = crypto.randomBytes(32).toString("base64url");
+    db.prepare("INSERT OR REPLACE INTO enercare_callback_tokens (token_hash, expires_at, created_at) VALUES (?, ?, ?)")
+      .run(hashToken(token), "9999-12-31T23:59:59.000Z", now());
+    return json(res, 200, { con_access_token: token, con_access_token_expiredate: "9999-12-31 23:59:59" });
+  }
+  if (req.method === "POST" && url.pathname === "/conn/v1/transfer/device/realtimedata") {
+    const body = await readJson(req);
+    const token = String(body.con_server_access_token || "");
+    const known = token && db.prepare("SELECT expires_at FROM enercare_callback_tokens WHERE token_hash = ?").get(hashToken(token));
+    if (body.con_server_id !== enercareServerId || !known || Date.parse(known.expires_at) < Date.now()) return json(res, 401, { reason: "Unauthorized" });
+    const plug = db.prepare("SELECT * FROM smart_plugs WHERE enercare_device_id = ?").get(String(body.device_id || ""));
+    if (plug) {
+      const state = plugState(body);
+      db.prepare("UPDATE smart_plugs SET connection_status=?, power_status=?, last_synced_at=?, last_error=NULL, updated_at=? WHERE id=?")
+        .run(state.connection, state.power, now(), now(), plug.id);
+    }
+    return json(res, 200, { result: "OK" });
+  }
+  return json(res, 404, { reason: "Not Found" });
+}
+
+function enercareIsConfigured() {
+  return Boolean(enercareServerSecret && enercareCallbackSecret);
+}
+
+function enercareError(message, status = 502) {
+  return Object.assign(new Error(message), { status });
+}
+
+async function enercareAccessToken() {
+  if (!enercareIsConfigured()) throw enercareError("EnerCare 연동 정보가 아직 설정되지 않았습니다.", 503);
+  if (enercareToken && enercareToken.expiresAt > Date.now() + 60_000) return enercareToken.value;
+  const authorization = Buffer.from(`${enercareServerId}:${enercareServerSecret}`, "utf8").toString("base64");
+  const response = await fetch(`${enercareBaseUrl}/conn/v1/publish/servertoken`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-HIT-Version": "1.0", Authorization: `Basic ${authorization}` },
+    body: JSON.stringify({ dwd_group_id: enercareGroupId }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.dwd_access_token) throw enercareError(`EnerCare 인증에 실패했습니다.${body.reason ? ` ${body.reason}` : ""}`, response.status || 502);
+  const expiresAt = Date.parse(String(body.dwd_access_token_expiredate || ""));
+  enercareToken = { value: String(body.dwd_access_token), expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 23 * 60 * 60 * 1000 };
+  return enercareToken.value;
+}
+
+async function enercareRequest(endpoint, payload) {
+  const token = await enercareAccessToken();
+  const response = await fetch(`${enercareBaseUrl}${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-HIT-Version": "1.0" },
+    body: JSON.stringify({ dwd_server_id: enercareServerId, dwd_access_token: token, group_id: enercareGroupId, ...payload }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw enercareError(`EnerCare 요청에 실패했습니다.${body.reason ? ` ${body.reason}` : ""}`, response.status || 502);
+  return body;
+}
+
+function plugState(value) {
+  const results = value?.results || value || {};
+  return {
+    connection: String(results.conn_status) === "1" ? "online" : "offline",
+    power: String(results.switch_status || "").toUpperCase() === "ON" ? "on" : "off",
+    uploadTime: results.upload_time || null,
+  };
+}
+
+async function refreshSmartPlug(plug) {
+  try {
+    const response = await enercareRequest("/conn/v1/inquire/device/values", {
+      device_id: plug.enercare_device_id,
+      inquire_values: ["switch_status", "conn_status", "upload_time"],
+    });
+    const state = plugState(response);
+    db.prepare("UPDATE smart_plugs SET connection_status = ?, power_status = ?, last_synced_at = ?, last_error = NULL, updated_at = ? WHERE id = ?")
+      .run(state.connection, state.power, now(), now(), plug.id);
+    return { ...plug, ...state, lastSyncedAt: now(), lastError: null };
+  } catch (error) {
+    const message = String(error.message || "EnerCare 상태 조회 실패").slice(0, 500);
+    db.prepare("UPDATE smart_plugs SET last_error = ?, updated_at = ? WHERE id = ?").run(message, now(), plug.id);
+    throw error;
+  }
+}
+
+function smartPlugDto(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    enercareDeviceId: row.enercare_device_id,
+    lowGroupId: row.low_group_id,
+    subGroupId: row.sub_group_id,
+    displayName: row.display_name,
+    connection: row.connection_status || "offline",
+    power: row.power_status || "off",
+    lastSyncedAt: row.last_synced_at || null,
+    lastError: row.last_error || null,
+  };
+}
+
 function compareReleaseVersions(left, right) {
   const a = String(left).split(".").map(Number);
   const b = String(right).split(".").map(Number);
@@ -495,6 +666,7 @@ function deviceDto(row) {
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
   if (displayCheck?.status === "completed") displayConnection = "정상";
   else if (displayCheck?.status === "failed") displayConnection = "연결 실패";
+  const smartPlug = smartPlugDto(db.prepare("SELECT * FROM smart_plugs WHERE device_id = ?").get(row.id));
   return {
     id: row.id,
     osVersion: humanizeOsVersion(osVersion, osEdition, osDisplayVersion, osBuild, osRevision),
@@ -518,6 +690,7 @@ function deviceDto(row) {
     foregroundApp: row.foreground_app,
     lastSeenAt: row.last_seen_at,
     displayEnabled,
+    smartPlug,
     displayConnection,
     displayCheckedAt: displayCheck?.completed_at || null,
     createdAt: row.created_at,
@@ -851,6 +1024,85 @@ async function handleApi(req, res, url) {
       deliveredAt: item.delivered_at,
       completedAt: item.completed_at,
     })) });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/smart-plugs/groups") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const groups = db.prepare("SELECT low_group_id, low_group_name, sub_group_id, sub_group_name FROM enercare_group_options ORDER BY low_group_name, sub_group_name").all();
+    return json(res, 200, { groups, configured: Boolean(enercareServerSecret) });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/smart-plugs/catalog") {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 등록은 시스템 또는 운영 관리자만 할 수 있습니다." });
+    const body = await readJson(req);
+    const lowGroupId = String(body.lowGroupId || "").trim().slice(0, 80);
+    const subGroupId = String(body.subGroupId || "").trim().slice(0, 80);
+    const result = await enercareRequest("/conn/v1/profile/device/list", { low_group_id: lowGroupId, sub_group_id: subGroupId, inquire_time: now().replace("T", " ").slice(0, 19) });
+    return json(res, 200, { devices: Array.isArray(result.deviceList) ? result.deviceList.map((item) => ({
+      deviceId: item.device_id, displayName: item.display_name || item.device_id, lowGroupId: item.low_group_id || lowGroupId,
+      subGroupId: item.sub_group_id || subGroupId, connection: String(item.conn_status) === "1" ? "online" : "offline",
+      power: String(item.power).toLowerCase() === "true" ? "on" : "off",
+    })) : [] });
+  }
+
+  const smartPlugMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/smart-plug$/i);
+  const smartPlugStatusMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/smart-plug\/status$/i);
+  const smartPlugPowerMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/smart-plug\/power$/i);
+  if (smartPlugMatch || smartPlugStatusMatch || smartPlugPowerMatch) {
+    const session = requireAdmin(req, res, req.method !== "GET");
+    if (!session) return;
+    const deviceId = (smartPlugMatch || smartPlugStatusMatch || smartPlugPowerMatch)[1];
+    const device = db.prepare("SELECT id, region_id, display_name FROM devices WHERE id = ?").get(deviceId);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 조회할 수 있습니다." });
+    const plug = db.prepare("SELECT * FROM smart_plugs WHERE device_id = ?").get(device.id);
+    if (req.method === "GET" && smartPlugStatusMatch) {
+      if (!plug) return json(res, 404, { error: "이 장비에 등록된 스마트플러그가 없습니다." });
+      const current = await refreshSmartPlug(plug);
+      return json(res, 200, { smartPlug: smartPlugDto({ ...plug, connection_status: current.connection, power_status: current.power, last_synced_at: current.lastSyncedAt, last_error: null }) });
+    }
+    if (req.method === "POST" && smartPlugPowerMatch) {
+      if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 제어는 시스템 또는 운영 관리자만 할 수 있습니다." });
+      if (!plug) return json(res, 404, { error: "이 장비에 등록된 스마트플러그가 없습니다." });
+      const body = await readJson(req);
+      if (typeof body.on !== "boolean") return json(res, 400, { error: "on 값은 true 또는 false여야 합니다." });
+      const current = await refreshSmartPlug(plug);
+      if (current.connection !== "online") return json(res, 409, { error: "스마트플러그가 오프라인입니다. 온라인 상태에서만 전원을 제어할 수 있습니다." });
+      const wanted = body.on ? "ON" : "OFF";
+      const response = await enercareRequest("/conn/v1/control/device/onoff", { device_id: plug.enercare_device_id, control: wanted, control_time: now().replace("T", " ").slice(0, 19) });
+      db.prepare("UPDATE smart_plugs SET power_status = ?, connection_status = 'online', last_synced_at = ?, last_error = NULL, updated_at = ? WHERE id = ?")
+        .run(wanted.toLowerCase(), now(), now(), plug.id);
+      audit(session.username, "smart_plug.power", plug.id, { deviceId: device.id, enercareDeviceId: plug.enercare_device_id, control: wanted, result: response.result || null });
+      return json(res, 200, { smartPlug: smartPlugDto(db.prepare("SELECT * FROM smart_plugs WHERE id = ?").get(plug.id)), result: response.result || wanted });
+    }
+    if (req.method === "PUT" && smartPlugMatch) {
+      if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 등록은 시스템 또는 운영 관리자만 할 수 있습니다." });
+      const body = await readJson(req);
+      const enercareDeviceId = String(body.enercareDeviceId || "").trim().slice(0, 200);
+      const lowGroupId = String(body.lowGroupId || "").trim().slice(0, 80);
+      const subGroupId = String(body.subGroupId || "").trim().slice(0, 80);
+      const displayName = String(body.displayName || device.display_name).trim().slice(0, 120);
+      if (!enercareDeviceId) return json(res, 400, { error: "EnerCare 장치 ID를 선택하거나 입력해 주세요." });
+      const timestamp = now();
+      if (plug) db.prepare("UPDATE smart_plugs SET enercare_device_id=?, low_group_id=?, sub_group_id=?, display_name=?, connection_status=NULL, power_status=NULL, last_synced_at=NULL, last_error=NULL, updated_at=? WHERE id=?")
+        .run(enercareDeviceId, lowGroupId, subGroupId, displayName, timestamp, plug.id);
+      else db.prepare("INSERT INTO smart_plugs (id, device_id, enercare_device_id, low_group_id, sub_group_id, display_name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(crypto.randomUUID(), device.id, enercareDeviceId, lowGroupId, subGroupId, displayName, session.username, timestamp, timestamp);
+      const saved = db.prepare("SELECT * FROM smart_plugs WHERE device_id = ?").get(device.id);
+      audit(session.username, "smart_plug.save", saved.id, { deviceId: device.id, enercareDeviceId, lowGroupId, subGroupId });
+      return json(res, 200, { smartPlug: smartPlugDto(saved) });
+    }
+    if (req.method === "DELETE" && smartPlugMatch) {
+      if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 삭제는 시스템 또는 운영 관리자만 할 수 있습니다." });
+      if (!plug) return json(res, 404, { error: "이 장비에 등록된 스마트플러그가 없습니다." });
+      db.prepare("DELETE FROM smart_plugs WHERE id = ?").run(plug.id);
+      audit(session.username, "smart_plug.delete", plug.id, { deviceId: device.id });
+      return json(res, 200, { ok: true });
+    }
   }
 
   if (req.method === "POST" && url.pathname === "/api/releases/upload") {
@@ -1330,6 +1582,7 @@ export const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   try {
     if (req.method === "GET" && url.pathname === "/healthz") return json(res, 200, { ok: true, version: appVersion, serverTime: now() });
+    if (url.pathname.startsWith("/conn/")) return await handleEnercareCallback(req, res, url);
     if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
     return serveStatic(req, res, url);
   } catch (error) {

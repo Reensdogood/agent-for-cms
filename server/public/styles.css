@@ -210,6 +210,20 @@ button.danger { color: #b42318; background: #fff1f0; border: 1px solid #f2b8b5; 
 .button-link { display: inline-flex; align-items: center; }
 iframe { display: block; width: 100%; height: min(84vh, 70rem); border: 0; background: white; }
 .integration-preview { display: block; width: 100%; height: min(84vh, 70rem); object-fit: contain; object-position: top center; background: #f1f3f5; }
+.smart-plug-state { font-weight: 760; white-space: nowrap; }
+.smart-plug-state.online { color: #b45309; }
+.smart-plug-state.offline { color: var(--muted); }
+.smart-plug-dialog { width: min(30rem, calc(100vw - 2rem)); border: 0; border-radius: 1.25rem; padding: 0; color: var(--ink); box-shadow: 0 1.5rem 4rem rgba(20, 32, 45, .22); }
+.smart-plug-dialog::backdrop { background: rgba(18, 27, 38, .35); backdrop-filter: blur(3px); }
+.smart-plug-dialog form { display: grid; gap: 1rem; padding: 1.35rem; }
+.smart-plug-live-status { margin-top: .8rem; padding: .8rem .9rem; border-radius: .8rem; background: #fff7ed; color: #9a3412; font-weight: 720; line-height: 1.45; }
+.smart-plug-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+.smart-plug-power { background: #ea580c; color: #fff; border-color: #ea580c; min-height: 2.65rem; padding-inline: 1.15rem; box-shadow: 0 .45rem 1rem rgba(234, 88, 12, .18); }
+.smart-plug-power:hover:not(:disabled) { background: #c2410c; border-color: #c2410c; transform: translateY(-1px); }
+.smart-plug-power:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+.smart-plug-setup { display: grid; gap: .75rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.smart-plug-setup label { display: grid; gap: .35rem; color: var(--muted); font-size: .78rem; font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .smart-plug-power { transition: none; transform: none !important; } }
 
 dialog { width: min(30rem, calc(100% - 2rem)); padding: 0; border: 1px solid rgba(255,255,255,.8); border-radius: 1.5rem; color: var(--ink); background: rgba(255,255,255,.94); backdrop-filter: blur(2rem) saturate(170%); box-shadow: 0 2rem 6rem rgba(0,0,0,.2); }
 dialog::backdrop { background: rgba(0,0,0,.24); backdrop-filter: blur(.25rem); }

@@ -9,6 +9,22 @@ process.env.NODE_ENV = "test";
 process.env.FUNNET_DATA_DIR = testDir;
 process.env.FUNNET_ADMIN_PASSWORD = "test-admin-password";
 process.env.FUNNET_ENROLLMENT_KEY = "test-enrollment-key-123";
+process.env.ENERCARE_BASE_URL = "https://enercare.test";
+process.env.ENERCARE_DWD_SERVER_ID = "FUNNET";
+process.env.ENERCARE_DWD_GROUP_ID = "FUNNET";
+process.env.ENERCARE_DWD_SERVER_SECRET = "test-dwd-secret";
+process.env.ENERCARE_CON_SERVER_SECRET = "test-callback-secret";
+
+const nativeFetch = global.fetch;
+global.fetch = async (input, options = {}) => {
+  const url = String(input);
+  if (!url.startsWith("https://enercare.test/")) return nativeFetch(input, options);
+  if (url.endsWith("/conn/v1/publish/servertoken")) return Response.json({ dwd_access_token: "test-access-token", dwd_access_token_expiredate: "2099-12-31 23:59:59" });
+  if (url.endsWith("/conn/v1/inquire/device/values")) return Response.json({ results: { conn_status: 1, switch_status: "ON", upload_time: "2026-09-18 10:00:00" } });
+  if (url.endsWith("/conn/v1/control/device/onoff")) return Response.json({ result: "OFF" });
+  if (url.endsWith("/conn/v1/profile/device/list")) return Response.json({ deviceList: [{ device_id: "DAWONDNS-B540_W-test", display_name: "테스트 플러그", conn_status: "1", power: "true" }] });
+  return Response.json({ reason: "not found" }, { status: 404 });
+};
 
 const { server, closeDatabase } = await import("./server.mjs");
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -122,9 +138,27 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
     body: JSON.stringify({ username: "dongjak-operator", password: "region-password-123" }),
   });
   assert.equal(operatorLogin.status, 200);
+  const operatorLoginBody = await operatorLogin.json();
   const operatorCookie = operatorLogin.headers.get("set-cookie").split(";")[0];
   const operatorSystemStatus = await fetch(`${base}/api/commands?limit=20`, { headers: { Cookie: operatorCookie } });
   assert.equal(operatorSystemStatus.status, 200);
+  const smartPlugSave = await fetch(`${base}/api/devices/${registered.deviceId}/smart-plug`, {
+    method: "PUT",
+    headers: { Cookie: operatorCookie, "Content-Type": "application/json", "X-CSRF-Token": operatorLoginBody.csrfToken },
+    body: JSON.stringify({ enercareDeviceId: "DAWONDNS-B540_W-test", lowGroupId: "GWANAK9", subGroupId: "", displayName: "테스트 플러그" }),
+  });
+  assert.equal(smartPlugSave.status, 200);
+  assert.equal((await smartPlugSave.json()).smartPlug.lowGroupId, "GWANAK9");
+  const smartPlugStatus = await fetch(`${base}/api/devices/${registered.deviceId}/smart-plug/status`, { headers: { Cookie: operatorCookie } });
+  assert.equal(smartPlugStatus.status, 200);
+  assert.deepEqual((await smartPlugStatus.json()).smartPlug.connection, "online");
+  const smartPlugPower = await fetch(`${base}/api/devices/${registered.deviceId}/smart-plug/power`, {
+    method: "POST",
+    headers: { Cookie: operatorCookie, "Content-Type": "application/json", "X-CSRF-Token": operatorLoginBody.csrfToken },
+    body: JSON.stringify({ on: false }),
+  });
+  assert.equal(smartPlugPower.status, 200);
+  assert.equal((await smartPlugPower.json()).smartPlug.power, "off");
 
   const regionalUser = await fetch(`${base}/api/users/${createdUser.id}`, {
     method: "PUT",
@@ -141,6 +175,12 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   const regionalCookie = regionalLogin.headers.get("set-cookie").split(";")[0];
   const regionalSystemStatus = await fetch(`${base}/api/commands?limit=20`, { headers: { Cookie: regionalCookie } });
   assert.equal(regionalSystemStatus.status, 403);
+  const regionalSmartPlugSave = await fetch(`${base}/api/devices/${registered.deviceId}/smart-plug`, {
+    method: "PUT",
+    headers: { Cookie: regionalCookie, "Content-Type": "application/json", "X-CSRF-Token": (await regionalLogin.clone().json()).csrfToken },
+    body: JSON.stringify({ enercareDeviceId: "DAWONDNS-B540_W-other" }),
+  });
+  assert.equal(regionalSmartPlugSave.status, 403);
 
   const rejectedRegistration = await fetch(`${base}/api/agent/register`, {
     method: "POST",

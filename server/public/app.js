@@ -137,6 +137,67 @@ function renderMetricList(selector, rows) {
 
 function tableCell(text, className = "") { const cell = textElement("td", className, text); return cell; }
 
+function canManageSmartPlugs() { return ["admin", "operator", "system_manager"].includes(currentSession?.role); }
+
+function smartPlugLabel(plug) {
+  if (!plug) return "미등록";
+  const power = plug.power === "on" ? "전원On" : "전원Off";
+  const connection = plug.connection === "online" ? "Online" : "Offline";
+  return `${power}/${connection}`;
+}
+
+async function openSmartPlugDialog(device, setup = false) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "smart-plug-dialog";
+  dialog.innerHTML = `<form method="dialog"><div class="tv-dialog-header"><span class="eyebrow">SMART PLUG</span><h3></h3><p class="smart-plug-description">EnerCare에서 현재 연결과 전원 상태를 조회합니다.</p><div class="smart-plug-live-status">상태 조회 중…</div></div><div class="smart-plug-actions"></div><section class="smart-plug-setup" hidden><label>상위 그룹 ID<input id="plugLowGroup" maxlength="80" placeholder="예: GWANAK9"></label><label>하위 그룹 ID<input id="plugSubGroup" maxlength="80" placeholder="전체는 비워두세요"></label><button type="button" class="small secondary" id="plugLoadCatalog">EnerCare 장치 목록 불러오기</button><label>EnerCare 장치<select id="plugCatalog"><option value="">목록을 먼저 불러오거나 아래에 직접 입력하세요</option></select></label><label>EnerCare 장치 ID<input id="plugDeviceId" maxlength="200" required></label><label>표시 이름<input id="plugDisplayName" maxlength="120"></label><div class="dialog-actions"><button type="button" class="small secondary" id="plugSave">등록 저장</button><button type="button" class="small danger" id="plugRemove" hidden>등록 해제</button></div></section><div class="dialog-footer"><button value="cancel" class="small secondary">닫기</button></div></form>`;
+  dialog.querySelector("h3").textContent = `${device.displayName} 스마트플러그`;
+  const status = dialog.querySelector(".smart-plug-live-status");
+  const actions = dialog.querySelector(".smart-plug-actions");
+  const setupPanel = dialog.querySelector(".smart-plug-setup");
+  const isManager = canManageSmartPlugs();
+  let plug = device.smartPlug;
+  const statusText = (value) => `${smartPlugLabel(value)} · ${value?.lastSyncedAt ? `최근 조회 ${formatTime(value.lastSyncedAt)}` : "현재 값 확인 필요"}${value?.lastError ? ` · ${value.lastError}` : ""}`;
+  const loadStatus = async () => {
+    if (!plug) { status.textContent = "스마트플러그가 등록되지 않았습니다."; return; }
+    status.textContent = "EnerCare 상태를 조회하고 있습니다…";
+    try { const result = await api(`/api/devices/${device.id}/smart-plug/status`); plug = result.smartPlug; status.textContent = statusText(plug); renderControl(); }
+    catch (error) { status.textContent = `상태 조회 실패 · ${error.message}`; }
+  };
+  const renderControl = () => {
+    actions.replaceChildren();
+    if (plug && isManager) {
+      const on = plug.power === "on";
+      const control = textElement("button", "smart-plug-power", on ? "전원 OFF" : "전원 ON");
+      control.type = "button"; control.disabled = plug.connection !== "online";
+      control.title = control.disabled ? "스마트플러그가 Offline 상태입니다." : "현재 전원 상태를 반대로 전환합니다.";
+      control.addEventListener("click", async () => {
+        const wanted = !on;
+        if (!await confirmAction(`${device.displayName} 스마트플러그 전원을 ${wanted ? "ON" : "OFF"}할까요?`, "Online 상태의 스마트플러그에만 적용됩니다.", wanted ? "전원 ON" : "전원 OFF")) return;
+        control.disabled = true;
+        try { const result = await api(`/api/devices/${device.id}/smart-plug/power`, { method: "POST", body: JSON.stringify({ on: wanted }) }); plug = result.smartPlug; status.textContent = statusText(plug); renderControl(); await loadDevices(); toast(`스마트플러그 전원을 ${wanted ? "ON" : "OFF"}했습니다.`); }
+        catch (error) { toast(error.message, "error"); control.disabled = false; }
+      });
+      actions.append(control);
+    }
+    if (isManager) {
+      const configure = textElement("button", "small secondary", plug ? "스마트플러그 설정" : "스마트플러그 등록");
+      configure.type = "button"; configure.addEventListener("click", () => { setupPanel.hidden = !setupPanel.hidden; }); actions.append(configure);
+    }
+  };
+  const low = dialog.querySelector("#plugLowGroup"); const sub = dialog.querySelector("#plugSubGroup"); const catalog = dialog.querySelector("#plugCatalog"); const deviceId = dialog.querySelector("#plugDeviceId"); const displayName = dialog.querySelector("#plugDisplayName");
+  low.value = plug?.lowGroupId || "GWANAK9"; sub.value = plug?.subGroupId || ""; deviceId.value = plug?.enercareDeviceId || ""; displayName.value = plug?.displayName || device.displayName;
+  setupPanel.hidden = !setup;
+  dialog.querySelector("#plugLoadCatalog").addEventListener("click", async (event) => {
+    const button = event.currentTarget; button.disabled = true; button.textContent = "불러오는 중…";
+    try { const result = await api("/api/smart-plugs/catalog", { method: "POST", body: JSON.stringify({ lowGroupId: low.value, subGroupId: sub.value }) }); catalog.replaceChildren(new Option("EnerCare 장치 선택", ""), ...result.devices.map((item) => new Option(`${item.displayName} · ${smartPlugLabel(item)}`, item.deviceId))); catalog.dataset.devices = JSON.stringify(result.devices); }
+    catch (error) { toast(error.message, "error"); } finally { button.disabled = false; button.textContent = "EnerCare 장치 목록 불러오기"; }
+  });
+  catalog.addEventListener("change", () => { const selected = JSON.parse(catalog.dataset.devices || "[]").find((item) => item.deviceId === catalog.value); if (selected) { deviceId.value = selected.deviceId; displayName.value = selected.displayName; low.value = selected.lowGroupId; sub.value = selected.subGroupId; } });
+  dialog.querySelector("#plugSave").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; try { const result = await api(`/api/devices/${device.id}/smart-plug`, { method: "PUT", body: JSON.stringify({ enercareDeviceId: deviceId.value, lowGroupId: low.value, subGroupId: sub.value, displayName: displayName.value }) }); plug = result.smartPlug; setupPanel.hidden = true; status.textContent = statusText(plug); renderControl(); await loadDevices(); toast("스마트플러그를 등록했습니다."); } catch (error) { toast(error.message, "error"); } finally { button.disabled = false; } });
+  const remove = dialog.querySelector("#plugRemove"); remove.hidden = !plug; remove.addEventListener("click", async () => { if (!await confirmAction("스마트플러그 등록을 해제할까요?", "EnerCare 장치 자체는 삭제되지 않고 이 서버의 연결만 해제됩니다.", "등록 해제")) return; await api(`/api/devices/${device.id}/smart-plug`, { method: "DELETE", body: "{}" }); plug = null; setupPanel.hidden = true; status.textContent = "스마트플러그 등록이 해제되었습니다."; renderControl(); await loadDevices(); });
+  document.body.append(dialog); dialog.addEventListener("close", () => dialog.remove(), { once: true }); dialog.showModal(); renderControl(); await loadStatus();
+}
+
 function deviceRow(device) {
   const row = document.createElement("tr");
   const selectCell = document.createElement("td");
@@ -154,7 +215,7 @@ function deviceRow(device) {
   row.append(selectCell, status, tableCell(device.regionName || "-", "region-name"), nameCell, tableCell(device.id, "mono"),
     tableCell(device.osVersion || "-", "os-version"), (() => { const cell = tableCell(device.agentVersion || "-", "agent-version"); if (device.agentElevationRequired) cell.append(textElement("small", "pending-label", "관리자 권한으로 다시 실행 필요")); return cell; })(),
     tableCell(device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""} · funnet-agent ${device.agentVersion || "-"}` : `미감지 · funnet-agent ${device.agentVersion || "-"}`),
-    tableCell(device.ivisionRunning ? "실행" : "미실행"), tableCell(device.displayConnection || "미확인", `display-connection ${device.displayConnection === "정상" ? "connected" : device.displayConnection === "연결 실패" ? "failed" : ""}`), tableCell(formatTime(device.lastSeenAt)));
+    tableCell(device.ivisionRunning ? "실행" : "미실행"), tableCell(device.displayConnection || "미확인", `display-connection ${device.displayConnection === "정상" ? "connected" : device.displayConnection === "연결 실패" ? "failed" : ""}`), tableCell(smartPlugLabel(device.smartPlug), `smart-plug-state ${device.smartPlug?.connection === "online" ? "online" : "offline"}`), tableCell(formatTime(device.lastSeenAt)));
   const actions = document.createElement("td");
   if (!device.approved) {
     const approve = textElement("button", "small primary-soft", "승인");
@@ -203,6 +264,11 @@ function deviceRow(device) {
     document.body.append(dialog); dialog.addEventListener("close", () => { clearInterval(statusTimer); dialog.remove(); }, { once: true }); dialog.showModal(); statusTimer = setInterval(refreshDialogStatus, 2500);
   });
   actions.append(tv);
+  if (device.smartPlug || canManageSmartPlugs()) {
+    const smartPlug = textElement("button", "small secondary", device.smartPlug ? "스마트플러그 제어" : "스마트플러그 등록");
+    smartPlug.addEventListener("click", () => openSmartPlugDialog(device, !device.smartPlug));
+    actions.append(smartPlug);
+  }
   const ivisionStop = textElement("button", "small secondary", "i-vision 종료");
   const ivisionRestart = textElement("button", "small secondary", "i-vision 재실행");
   const windowsShutdown = textElement("button", "small danger", "Windows 종료");
@@ -648,11 +714,10 @@ $("#uploadReleaseButton").addEventListener("click", async () => {
 const integrations = {
   ivision: { title: "i-vision Cloud", label: "cloud.myivision.com", url: "https://cloud.myivision.com/" },
   "ume-manager": { title: "UME 관리자", label: "uc01.fun-net.co.kr:8443", url: "https://uc01.fun-net.co.kr:8443/manager/login" },
-  enercare: { title: "Enercare 운영", label: "enercare.co.kr/svc2", url: "https://enercare.co.kr/svc2/", preview: true },
 };
 $$('[data-tool]').forEach((button) => button.addEventListener("click", () => {
   $$('[data-tool]').forEach((item) => item.classList.toggle("active", item === button));
-  const tool = integrations[button.dataset.tool]; $("#integrationTitle").textContent = tool.title; $("#integrationUrl").textContent = tool.label; $("#integrationFrame").hidden = Boolean(tool.preview); $("#integrationPreview").hidden = !tool.preview; if (!tool.preview) $("#integrationFrame").src = tool.url; $("#integrationFallback").href = tool.url;
+  const tool = integrations[button.dataset.tool]; $("#integrationTitle").textContent = tool.title; $("#integrationUrl").textContent = tool.label; $("#integrationFrame").src = tool.url; $("#integrationFallback").href = tool.url;
 }));
 $$('[data-release-filter]').forEach((button) => button.addEventListener("click", () => {
   releaseFilter = button.dataset.releaseFilter;

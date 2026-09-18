@@ -7,7 +7,7 @@
 - 관리자 로그인 화면
 - 사용자 추가, 수정, 삭제, 계정 사용/중지
 - 전체 시스템, 운영, 지역 관리자 권한 관리
-- Apple 스타일의 장비 현황, 장비 관리, 스케줄, UME 배포, 외부 관리 UI
+- Apple 스타일의 장비 현황, 장비 관리, 스마트플러그, 스케줄, UME 배포, 외부 관리 UI
 - 사용자 표시 Agent 이름: `funnet-agent` (실행 파일/프로세스 식별자 `funnet-gwanak-agent`는 기존 설치·자동업데이트 호환을 위해 유지)
 - Windows Tray Agent 설치 프로그램
 - 장비 자동 등록, 승인 대기, 장비명 수정
@@ -34,6 +34,7 @@
 - 승인된 장비 전체로 UME 설치파일 다운로드 명령 전송
 - Agent의 UME 설치파일 크기, SHA-256, Windows 전자서명 검증
 - 최근 명령 이력 조회 API
+- EnerCare 스마트플러그 장치 목록 조회, 실시간 상태 캐시, Online 상태 전원 ON/OFF 제어
 
 ## 운영 정책
 
@@ -116,7 +117,14 @@ FUNNET_DOMAIN=control.example.com
 FUNNET_ADMIN_USER=admin
 FUNNET_ADMIN_PASSWORD=replace-with-a-long-random-password
 FUNNET_ENROLLMENT_KEY=replace-with-a-separate-long-random-enrollment-key
+ENERCARE_BASE_URL=https://dwcon.enercare.co.kr:18443
+ENERCARE_DWD_SERVER_ID=FUNNET
+ENERCARE_DWD_GROUP_ID=FUNNET
+ENERCARE_DWD_SERVER_SECRET=EnerCare에서 발급한 다원 서버 Secret
+ENERCARE_CON_SERVER_SECRET=EnerCare 콜백용으로 생성한 강한 Secret
 ```
+
+`ENERCARE_DWD_SERVER_SECRET`와 `ENERCARE_CON_SERVER_SECRET`는 서버 `.env`에만 저장하며 브라우저나 Agent에 전달하지 않습니다. EnerCare가 실시간 콜백을 사용할 경우 `https://agent.funnet.kr/conn/v1/publish/servertoken` 및 `https://agent.funnet.kr/conn/v1/transfer/device/realtimedata`를 사용합니다. 콜백 Secret은 서버 토큰 발급 시 상수 시간 비교로 검증하고, 발급 토큰은 `9999-12-31 23:59:59`까지 유효하게 처리합니다.
 
 Docker와 Docker Compose가 설치된 서버에서 실행합니다.
 
