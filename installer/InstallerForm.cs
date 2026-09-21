@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Win32;
 using System.IO.Ports;
@@ -170,7 +171,8 @@ internal sealed class InstallerForm : Form
             PropertyNameCaseInsensitive = true,
         })
             ?? throw new InvalidOperationException("이 설치 파일의 지역 등록 정보를 읽을 수 없습니다. 관리자 화면에서 다시 내려받아 주세요.");
-        if (TryGetBootstrapToken(out var token))
+        var hasBootstrapToken = TryGetBootstrapToken(out var token);
+        if (hasBootstrapToken)
         {
             try
             {
@@ -184,6 +186,10 @@ internal sealed class InstallerForm : Form
                 throw new InvalidOperationException($"지역 등록 정보를 서버에서 가져오지 못했습니다. 인터넷 연결을 확인한 뒤 관리자 화면에서 설치 파일을 다시 내려받아 주세요.\n\n{error.Message}");
             }
         }
+        else if (string.Equals(provisioning.EnrollmentKey, "bootstrap-provisioning-placeholder", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("이 설치 파일의 지역 등록 정보를 찾지 못했습니다. 다운로드가 완료된 파일을 사용해 다시 내려받아 주세요.");
+        }
         if (!Uri.TryCreate(provisioning.ServerBaseUrl, UriKind.Absolute, out var server) ||
             (server.Scheme != "https" && server.Scheme != "http"))
             throw new InvalidOperationException("이 설치 파일의 서버 정보가 올바르지 않습니다. 관리자 화면에서 다시 내려받아 주세요.");
@@ -195,9 +201,37 @@ internal sealed class InstallerForm : Form
         token = "";
         var name = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "");
         const string prefix = "funnet-agent-bootstrap-";
-        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
-        var candidate = name[prefix.Length..];
-        if (candidate.Length is < 24 or > 128 || candidate.Any(character => !char.IsLetterOrDigit(character) && character is not '-' and not '_')) return false;
+        if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && TryValidateBootstrapToken(name[prefix.Length..], out token)) return true;
+
+        // 브라우저가 같은 다운로드 파일에 " (1)"을 붙이거나 사용자가 파일명을
+        // 바꿔도 지역 키 조회가 깨지지 않도록 서버가 exe 끝에 붙인 토큰을 읽는다.
+        // 단일 파일 실행 파일은 PE overlay를 허용하므로 실행 코드에는 영향을 주지 않는다.
+        try
+        {
+            var executable = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(executable) || !File.Exists(executable)) return false;
+            const string marker = "FUNNET_BOOTSTRAP_TOKEN:";
+            using var stream = new FileStream(executable, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var count = (int)Math.Min(stream.Length, 512);
+            stream.Seek(-count, SeekOrigin.End);
+            var bytes = new byte[count];
+            if (stream.Read(bytes, 0, bytes.Length) != bytes.Length) return false;
+            var tail = Encoding.UTF8.GetString(bytes);
+            var position = tail.LastIndexOf(marker, StringComparison.Ordinal);
+            if (position < 0) return false;
+            var value = tail[(position + marker.Length)..].Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+            return TryValidateBootstrapToken(value, out token);
+        }
+        catch { return false; }
+    }
+
+    private static bool TryValidateBootstrapToken(string value, out string token)
+    {
+        token = "";
+        // 브라우저가 붙인 " (1)" 접미사는 토큰의 일부가 아니므로 첫 번째
+        // 비허용 문자에서 분리한다. 토큰 생성 값에는 공백이 포함되지 않는다.
+        var candidate = new string(value.TakeWhile(character => char.IsLetterOrDigit(character) || character is '-' or '_').ToArray());
+        if (candidate.Length is < 24 or > 128) return false;
         token = candidate;
         return true;
     }

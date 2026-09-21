@@ -705,14 +705,21 @@ function createBootstrapToken(regionId) {
 
 function streamBootstrapInstaller(res, token) {
   const stat = fs.statSync(bootstrapInstallerPath);
+  // Windows single-file exe는 실행에 사용되지 않는 overlay 바이트를 허용한다.
+  // 파일명은 브라우저가 중복 다운로드 시 바꿀 수 있으므로, 같은 토큰을 파일
+  // 끝에도 넣어 설치기가 이름과 무관하게 지역 등록 정보를 찾을 수 있게 한다.
+  const trailer = Buffer.from(`\nFUNNET_BOOTSTRAP_TOKEN:${token}\n`, "utf8");
   res.writeHead(200, {
     "Content-Type": "application/octet-stream",
-    "Content-Length": stat.size,
+    "Content-Length": stat.size + trailer.length,
     "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`funnet-agent-bootstrap-${token}.exe`)}`,
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "private, no-store",
   });
-  return fs.createReadStream(bootstrapInstallerPath).pipe(res);
+  const stream = fs.createReadStream(bootstrapInstallerPath);
+  stream.once("error", () => res.destroy());
+  stream.once("end", () => res.end(trailer));
+  return stream.pipe(res, { end: false });
 }
 
 function humanizeOsVersion(value, edition, displayVersion, buildValue, revisionValue) {
