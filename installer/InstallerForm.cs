@@ -170,10 +170,36 @@ internal sealed class InstallerForm : Form
             PropertyNameCaseInsensitive = true,
         })
             ?? throw new InvalidOperationException("이 설치 파일의 지역 등록 정보를 읽을 수 없습니다. 관리자 화면에서 다시 내려받아 주세요.");
+        if (TryGetBootstrapToken(out var token))
+        {
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                var remote = client.GetStringAsync($"{provisioning.ServerBaseUrl.TrimEnd('/')}/api/installer-provisioning/{token}").GetAwaiter().GetResult();
+                provisioning = JsonSerializer.Deserialize<InstallerProvisioning>(remote, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? throw new InvalidOperationException("지역 등록 정보를 읽지 못했습니다.");
+            }
+            catch (Exception error)
+            {
+                throw new InvalidOperationException($"지역 등록 정보를 서버에서 가져오지 못했습니다. 인터넷 연결을 확인한 뒤 관리자 화면에서 설치 파일을 다시 내려받아 주세요.\n\n{error.Message}");
+            }
+        }
         if (!Uri.TryCreate(provisioning.ServerBaseUrl, UriKind.Absolute, out var server) ||
             (server.Scheme != "https" && server.Scheme != "http"))
             throw new InvalidOperationException("이 설치 파일의 서버 정보가 올바르지 않습니다. 관리자 화면에서 다시 내려받아 주세요.");
         return provisioning with { ServerBaseUrl = server.ToString().TrimEnd('/') };
+    }
+
+    private static bool TryGetBootstrapToken(out string token)
+    {
+        token = "";
+        var name = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "");
+        const string prefix = "funnet-agent-bootstrap-";
+        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+        var candidate = name[prefix.Length..];
+        if (candidate.Length is < 24 or > 128 || candidate.Any(character => !char.IsLetterOrDigit(character) && character is not '-' and not '_')) return false;
+        token = candidate;
+        return true;
     }
 
     private static Control Field(string label, Control input)

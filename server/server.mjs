@@ -11,6 +11,7 @@ const packagePath = path.join(currentDir, "..", "package.json");
 const appVersion = JSON.parse(fs.readFileSync(packagePath, "utf8")).version || "0.0.0";
 const dataDir = process.env.FUNNET_DATA_DIR || path.join(currentDir, "data");
 const releaseDir = path.join(dataDir, "releases");
+const bootstrapInstallerPath = path.join(dataDir, "funnet-agent-bootstrap.exe");
 const databasePath = path.join(dataDir, "funnet.db");
 const port = Number(process.env.PORT || 4170);
 const adminUser = process.env.FUNNET_ADMIN_USER || "admin";
@@ -168,6 +169,13 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS enercare_callback_tokens (
     token_hash TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS installer_bootstrap_tokens (
+    token_hash TEXT PRIMARY KEY,
+    region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
@@ -685,6 +693,28 @@ function streamRelease(res, release) {
   return fs.createReadStream(release.file_path).pipe(res);
 }
 
+function bootstrapTokenHash(value) { return crypto.createHash("sha256").update(value).digest("hex"); }
+
+function createBootstrapToken(regionId) {
+  const token = crypto.randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare("INSERT INTO installer_bootstrap_tokens (token_hash, region_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
+    .run(bootstrapTokenHash(token), regionId, expiresAt, now());
+  return token;
+}
+
+function streamBootstrapInstaller(res, token) {
+  const stat = fs.statSync(bootstrapInstallerPath);
+  res.writeHead(200, {
+    "Content-Type": "application/octet-stream",
+    "Content-Length": stat.size,
+    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`funnet-agent-bootstrap-${token}.exe`)}`,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store",
+  });
+  return fs.createReadStream(bootstrapInstallerPath).pipe(res);
+}
+
 function humanizeOsVersion(value, edition, displayVersion, buildValue, revisionValue) {
   // 서버 화면에는 빌드 번호로 추정한 OS 계열을 표시하지 않는다.
   // Agent가 보고한 사람이 읽을 수 있는 에디션과 릴리즈 버전만 사용한다.
@@ -737,6 +767,16 @@ function deviceDto(row) {
 }
 
 async function handleApi(req, res, url) {
+  const provisioningMatch = url.pathname.match(/^\/api\/installer-provisioning\/([A-Za-z0-9_-]{24,128})$/);
+  if (req.method === "GET" && provisioningMatch) {
+    const token = provisioningMatch[1];
+    const record = db.prepare("SELECT region_id, expires_at FROM installer_bootstrap_tokens WHERE token_hash = ?").get(bootstrapTokenHash(token));
+    if (!record || Date.parse(record.expires_at) <= Date.now()) return json(res, 404, { error: "설치 파일의 지역 등록 정보가 만료되었습니다. 관리자 화면에서 다시 내려받아 주세요." });
+    const region = db.prepare("SELECT * FROM regions WHERE id = ?").get(record.region_id);
+    if (!region) return json(res, 404, { error: "지역 등록 정보를 찾을 수 없습니다." });
+    return json(res, 200, { serverBaseUrl: publicServerUrl(req), enrollmentKey: region.enrollment_key, regionName: region.name });
+  }
+
   if (req.method === "POST" && url.pathname === "/api/auth/login") {
     const address = req.socket.remoteAddress || "unknown";
     const attempt = loginAttempts.get(address) || { count: 0, blockedUntil: 0 };
@@ -1016,8 +1056,35 @@ async function handleApi(req, res, url) {
     if (!region) return json(res, 404, { error: "지역을 찾을 수 없습니다." });
     const nextKey = crypto.randomBytes(24).toString("base64url");
     db.prepare("UPDATE regions SET enrollment_key = ?, updated_at = ? WHERE id = ?").run(nextKey, now(), region.id);
+    db.prepare("DELETE FROM installer_bootstrap_tokens WHERE region_id = ?").run(region.id);
     audit(session.username, "region.rotate_key", region.id, { name: region.name });
     return json(res, 200, { region: regionDto(db.prepare("SELECT * FROM regions WHERE id = ?").get(region.id)), serverBaseUrl: publicServerUrl(req) });
+  }
+
+  const regionInstallerMatch = url.pathname.match(/^\/api\/regions\/([a-f0-9-]+)\/agent-installer$/i);
+  if (req.method === "POST" && regionInstallerMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    const region = db.prepare("SELECT * FROM regions WHERE id = ?").get(regionInstallerMatch[1]);
+    if (!region) return json(res, 404, { error: "지역을 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && region.id !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 내려받을 수 있습니다." });
+    if (!fs.existsSync(bootstrapInstallerPath)) return json(res, 503, { error: "최신 Agent 설치 파일 템플릿이 아직 준비되지 않았습니다." });
+    const token = createBootstrapToken(region.id);
+    audit(session.username, "region.agent_installer.download", region.id, { name: region.name });
+    return json(res, 200, { downloadPath: `/api/regions/${region.id}/agent-installer/download?token=${encodeURIComponent(token)}` });
+  }
+
+  const regionInstallerDownloadMatch = url.pathname.match(/^\/api\/regions\/([a-f0-9-]+)\/agent-installer\/download$/i);
+  if (req.method === "GET" && regionInstallerDownloadMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const regionId = regionInstallerDownloadMatch[1];
+    if (sameRegionOnly(session) && regionId !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 내려받을 수 있습니다." });
+    const token = String(url.searchParams.get("token") || "");
+    const record = db.prepare("SELECT region_id, expires_at FROM installer_bootstrap_tokens WHERE token_hash = ?").get(bootstrapTokenHash(token));
+    if (!record || record.region_id !== regionId || Date.parse(record.expires_at) <= Date.now()) return json(res, 404, { error: "다운로드 정보가 만료되었습니다. 다시 시도해 주세요." });
+    if (!fs.existsSync(bootstrapInstallerPath)) return json(res, 503, { error: "최신 Agent 설치 파일 템플릿이 아직 준비되지 않았습니다." });
+    return streamBootstrapInstaller(res, token);
   }
 
   if (req.method === "GET" && url.pathname === "/api/releases") {

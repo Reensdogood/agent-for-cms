@@ -345,7 +345,19 @@ function renderRegionKeys() {
       try { await api(`/api/regions/${region.id}/rotate-key`, { method: "POST", body: "{}" }); await loadEnrollmentInfo(); toast("등록 키를 재발급했습니다."); }
       catch (error) { handleError(error); }
     });
-    row.append(copy, copyButton, rotate);
+    const download = textElement("button", "small secondary", "에이전트 파일 다운로드 (최신)");
+    download.addEventListener("click", async () => {
+      download.disabled = true;
+      const original = download.textContent;
+      download.textContent = "설치 파일 준비 중…";
+      try {
+        const result = await api(`/api/regions/${region.id}/agent-installer`, { method: "POST", body: "{}" });
+        window.location.assign(result.downloadPath);
+        toast(`${region.name} 최신 Agent 설치 파일 다운로드를 시작했습니다.`);
+      } catch (error) { handleError(error); }
+      finally { download.disabled = false; download.textContent = original; }
+    });
+    row.append(copy, copyButton, rotate, download);
     return row;
   }));
 }
