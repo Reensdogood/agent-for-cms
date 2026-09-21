@@ -196,6 +196,7 @@ seedAdmin();
 
 const sessions = new Map();
 const loginAttempts = new Map();
+const registrationRejectionAuditAt = new Map();
 
 function now() {
   return new Date().toISOString();
@@ -693,6 +694,18 @@ function streamRelease(res, release) {
   return fs.createReadStream(release.file_path).pipe(res);
 }
 
+function auditRegistrationRejection(reason, enrollment, installationId, localName) {
+  // 등록 실패 Agent는 5초마다 재시도한다. 같은 원인을 모두 기록하면
+  // 감사 로그가 급증하므로 장비·원인별로 5분마다 한 번만 남긴다.
+  const keyFingerprint = crypto.createHash("sha256").update(String(enrollment || "")).digest("hex").slice(0, 12);
+  const key = `${reason}:${keyFingerprint}:${installationId}`;
+  const previous = registrationRejectionAuditAt.get(key) || 0;
+  if (Date.now() - previous < 5 * 60 * 1000) return;
+  if (registrationRejectionAuditAt.size > 500) registrationRejectionAuditAt.clear();
+  registrationRejectionAuditAt.set(key, Date.now());
+  audit("agent:registration", "device.register.rejected", null, { reason, keyFingerprint, installationId, localName });
+}
+
 function bootstrapTokenHash(value) { return crypto.createHash("sha256").update(value).digest("hex"); }
 
 function createBootstrapToken(regionId) {
@@ -836,18 +849,22 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/agent/register") {
-    const region = findRegionByEnrollmentKey(String(req.headers["x-enrollment-key"] || ""));
-    if (!region) {
-      return json(res, 401, { error: "등록 키가 올바르지 않습니다." });
-    }
     const body = await readJson(req);
+    const enrollment = String(req.headers["x-enrollment-key"] || "");
     const installationId = String(body.installationId || "").trim();
     const localName = String(body.localName || body.machineName || "미지정 장비").trim().slice(0, 100);
+    const region = findRegionByEnrollmentKey(enrollment);
+    if (!region) {
+      auditRegistrationRejection("invalid_enrollment_key", enrollment, installationId, localName);
+      return json(res, 401, { error: "등록 키가 올바르지 않습니다." });
+    }
     if (!/^[a-f0-9-]{36}$/i.test(installationId)) {
+      auditRegistrationRejection("invalid_installation_id", enrollment, installationId, localName);
       return json(res, 400, { error: "installationId 형식이 올바르지 않습니다." });
     }
     const existing = db.prepare("SELECT * FROM devices WHERE installation_id = ?").get(installationId);
     if (existing) {
+      auditRegistrationRejection("duplicate_installation_id", enrollment, installationId, localName);
       return json(res, 409, { error: "이미 등록된 장비입니다. 저장된 장비 토큰을 사용해야 합니다." });
     }
     const deviceId = crypto.randomUUID();
