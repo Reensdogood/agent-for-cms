@@ -298,11 +298,15 @@ internal sealed class InstallerForm : Form
             var setupCopy = Path.Combine(_installDirectory, "funnet-agent-setup.exe");
             if (!_configureOnly && !string.Equals(Process.GetCurrentProcess().MainModule?.FileName, setupCopy, StringComparison.OrdinalIgnoreCase)) File.Copy(Process.GetCurrentProcess().MainModule?.FileName ?? "", setupCopy, true);
             RegisterElevatedStartup(executable);
-            // i-Vision 재실행은 이 예약 작업을 통해서만 관리자 권한으로 수행한다.
-            // 등록 실패를 설치 성공으로 처리하면 이후 서버 명령이 원인 없이
-            // 실패하므로, 설치 단계에서 즉시 사용자에게 알린다.
-            if (!RegisterIvisionLauncher())
-                throw new InvalidOperationException($"i-Vision 관리자 권한 실행 작업 등록에 실패했습니다. {(_lastTaskError.Length > 0 ? _lastTaskError : "관리자 권한으로 설치기를 다시 실행해 주세요.")} ");
+            // i-Vision이 설치된 PC에서만 재실행용 관리자 작업을 등록한다.
+            // 미설치 PC는 Agent 설치와 무관하므로 오래된 작업만 정리하고
+            // Agent 설치를 실패로 처리하지 않는다.
+            if (File.Exists(IvisionUpdaterPath))
+            {
+                if (!RegisterIvisionLauncher())
+                    throw new InvalidOperationException($"i-Vision 관리자 권한 실행 작업 등록에 실패했습니다. {(_lastTaskError.Length > 0 ? _lastTaskError : "관리자 권한으로 설치기를 다시 실행해 주세요.")} ");
+            }
+            else DeleteIvisionLauncher();
             StartScheduledAgent(executable);
             // StartScheduledAgent는 실제 Agent 프로세스가 같은 경로에서 5초
             // 유지되는 것까지 확인한다. 확인에 성공한 운영 설치/업데이트는
@@ -410,16 +414,17 @@ internal sealed class InstallerForm : Form
         if (task is null || task.ExitCode != 0) throw new InvalidOperationException("Agent 관리자 권한 자동 실행 등록에 실패했습니다.");
     }
 
+    private const string IvisionUpdaterPath = @"C:\i-Vision Player\iVisionUpdater.exe";
+
     private static bool RegisterIvisionLauncher()
     {
-        const string updater = @"C:\i-Vision Player\iVisionUpdater.exe";
-        if (!File.Exists(updater)) return false;
+        if (!File.Exists(IvisionUpdaterPath)) return true;
         DeleteIvisionLauncher();
         using var task = Process.Start(new ProcessStartInfo("schtasks.exe",
             // ONDEMAND는 schtasks /Create에서 유효한 스케줄 형식이 아니다.
             // 먼 미래의 ONCE 작업으로 등록하면 자동 실행은 발생하지 않고
             // schtasks /Run으로만 호출할 수 있다.
-            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{updater}\\\"\" /SC ONCE /ST 23:59 /RL HIGHEST /F")
+            $"/Create /TN \"{IvisionLauncherTaskName}\" /TR \"\\\"{IvisionUpdaterPath}\\\"\" /SC ONCE /ST 23:59 /RL HIGHEST /F")
         {
             // 설치기 자체가 app.manifest의 requireAdministrator로 상승되어
             // 있으므로 runas를 중첩 호출하지 않는다. 중첩 UAC는 Windows 10
