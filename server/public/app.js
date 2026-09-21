@@ -342,10 +342,22 @@ function renderRegionKeys() {
     const rotate = textElement("button", "small secondary", "키 재발급");
     rotate.addEventListener("click", async () => {
       if (!await confirmAction(`${region.name} 등록 키를 재발급할까요?`, "기존 등록 장비는 계속 동작하지만, 기존 키로는 새 장비 등록이 되지 않습니다.", "재발급")) return;
-      try { await api(`/api/regions/${region.id}/rotate-key`, { method: "POST", body: "{}" }); await loadEnrollmentInfo(); toast("등록 키를 재발급했습니다."); }
+      try { await api(`/api/regions/${region.id}/rotate-key`, { method: "POST", body: "{}" }); await loadEnrollmentInfo(); toast("등록 키와 최신 Agent 설치 파일을 재발급했습니다."); }
       catch (error) { handleError(error); }
     });
-    row.append(copy, copyButton, rotate);
+    const download = textElement("button", "small secondary", "에이전트 파일 다운로드 (최신)");
+    download.addEventListener("click", async () => {
+      download.disabled = true;
+      const original = download.textContent;
+      download.textContent = "설치 파일 준비 중…";
+      try {
+        const result = await api(`/api/regions/${region.id}/agent-installer`, { method: "POST", body: "{}" });
+        window.location.assign(`/api/releases/${result.release.id}/download`);
+        toast(`${region.name} 최신 Agent 설치 파일 다운로드를 시작했습니다.`);
+      } catch (error) { handleError(error); }
+      finally { download.disabled = false; download.textContent = original; }
+    });
+    row.append(copy, copyButton, rotate, download);
     return row;
   }));
 }
