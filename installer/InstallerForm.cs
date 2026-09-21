@@ -30,6 +30,7 @@ internal sealed class InstallerForm : Form
     // [설정]으로 열었을 때만 운영자가 서버 주소를 변경할 수 있다.
     private readonly bool _showServerAddress;
     private string _existingEnrollmentKey = "";
+    private string _existingEnrollmentKeyFingerprint = "";
     private readonly InstallerProvisioning _provisioning;
     private static string _lastTaskError = "";
     public InstallerForm(bool configureOnly = false, bool updateOnly = false)
@@ -135,6 +136,7 @@ internal sealed class InstallerForm : Form
             var root = document.RootElement;
             if (root.TryGetProperty("serverBaseUrl", out var server)) _serverUrl.Text = server.GetString() ?? _serverUrl.Text;
             if (root.TryGetProperty("enrollmentKey", out var key)) _existingEnrollmentKey = key.GetString() ?? "";
+            if (root.TryGetProperty("enrollmentKeyFingerprint", out var keyFingerprint)) _existingEnrollmentKeyFingerprint = keyFingerprint.GetString() ?? "";
             if (root.TryGetProperty("localName", out var name)) _deviceName.Text = name.GetString() ?? _deviceName.Text;
             if (root.TryGetProperty("display", out var display))
             {
@@ -236,6 +238,34 @@ internal sealed class InstallerForm : Form
         return true;
     }
 
+    private bool ShouldResetIdentityForNewEnrollment(string nextFingerprint)
+    {
+        if (string.IsNullOrWhiteSpace(nextFingerprint)) return false;
+        var settingsPath = Path.Combine(_installDirectory, "agent-settings.json");
+        if (!File.Exists(settingsPath)) return true;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(settingsPath));
+            var existing = document.RootElement.TryGetProperty("enrollmentKeyFingerprint", out var value) ? value.GetString() ?? "" : "";
+            return !string.Equals(existing, nextFingerprint, StringComparison.Ordinal);
+        }
+        catch { return true; }
+    }
+
+    private static string EnrollmentKeyFingerprint(string key)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(key));
+        return Convert.ToHexString(bytes);
+    }
+
+    private void ResetDeviceIdentity()
+    {
+        var identityPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Funnet", "funnet-gwanak-agent", "identity.json");
+        if (!File.Exists(identityPath)) return;
+        var backup = identityPath + $".before-enrollment-{DateTimeOffset.Now:yyyyMMddHHmmssfff}";
+        File.Move(identityPath, backup, false);
+    }
+
     private static Control Field(string label, Control input)
     {
         input.Dock = DockStyle.Fill;
@@ -327,7 +357,11 @@ internal sealed class InstallerForm : Form
             // 신규 설치만 설치 파일에 포함된 지역 키로 등록한다. 업데이트와
             // 설정 변경은 기존 등록 토큰을 유지하므로 다른 지역으로 재등록하지 않는다.
             var key = _configureOnly ? _existingEnrollmentKey : _provisioning.EnrollmentKey.Trim();
-            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = key, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = _displayModel.SelectedItem?.ToString() ?? "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
+            var keyFingerprint = _configureOnly ? _existingEnrollmentKeyFingerprint : EnrollmentKeyFingerprint(key);
+            // 새 지역 설치 파일은 이전 Agent의 장비 토큰을 재사용하면 안 된다.
+            // 자동 업데이트와 트레이 설정 변경은 같은 장비의 토큰을 유지한다.
+            if (!_configureOnly && !_updateOnly && ShouldResetIdentityForNewEnrollment(keyFingerprint)) ResetDeviceIdentity();
+            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = key, enrollmentKeyFingerprint = keyFingerprint, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = _displayModel.SelectedItem?.ToString() ?? "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
             await File.WriteAllTextAsync(Path.Combine(_installDirectory, "agent-settings.json"), JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
             var setupCopy = Path.Combine(_installDirectory, "funnet-agent-setup.exe");
             if (!_configureOnly && !string.Equals(Process.GetCurrentProcess().MainModule?.FileName, setupCopy, StringComparison.OrdinalIgnoreCase)) File.Copy(Process.GetCurrentProcess().MainModule?.FileName ?? "", setupCopy, true);
@@ -363,7 +397,7 @@ internal sealed class InstallerForm : Form
         try
         {
             var port = _displayPort.Text.Trim();
-            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = _existingEnrollmentKey, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = _displayModel.SelectedItem?.ToString() ?? "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
+            var settings = new { serverBaseUrl = server.ToString().TrimEnd('/'), enrollmentKey = _existingEnrollmentKey, enrollmentKeyFingerprint = _existingEnrollmentKeyFingerprint, localName = _deviceName.Text.Trim(), heartbeatSeconds = 30, commandPollSeconds = 5, display = new { enabled = _displayEnabled.Checked, vendor = "samsung", model = _displayModel.SelectedItem?.ToString() ?? "LH75QET", port = string.IsNullOrWhiteSpace(port) ? null : port } };
             await File.WriteAllTextAsync(Path.Combine(_installDirectory, "agent-settings.json"), JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
             ShowStatus("설정을 저장했습니다. Agent를 재시작합니다.");
             StopAgent();

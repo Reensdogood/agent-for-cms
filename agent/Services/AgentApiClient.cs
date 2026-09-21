@@ -42,7 +42,7 @@ internal sealed class AgentApiClient : IDisposable
             agentVersion = health.AgentVersion,
         }, options: JsonDefaults.Standard);
         using var response = await _http.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "장비 등록", cancellationToken);
         var result = await response.Content.ReadFromJsonAsync<RegisterResponse>(JsonDefaults.Standard, cancellationToken)
                      ?? throw new InvalidOperationException("장비 등록 응답이 비어 있습니다.");
         _identityStore.SetDeviceCredentials(_identity, result.DeviceId, result.DeviceToken);
@@ -54,14 +54,14 @@ internal sealed class AgentApiClient : IDisposable
         using var request = DeviceRequest(HttpMethod.Post, "api/agent/heartbeat");
         request.Content = JsonContent.Create(health, options: JsonDefaults.Standard);
         using var response = await _http.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "상태 전송", cancellationToken);
     }
 
     public async Task<IReadOnlyList<AgentCommand>> GetCommandsAsync(CancellationToken cancellationToken)
     {
         using var request = DeviceRequest(HttpMethod.Get, "api/agent/commands");
         using var response = await _http.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "명령 조회", cancellationToken);
         var result = await response.Content.ReadFromJsonAsync<CommandListResponse>(JsonDefaults.Standard, cancellationToken);
         return result?.Commands ?? [];
     }
@@ -71,14 +71,14 @@ internal sealed class AgentApiClient : IDisposable
         using var request = DeviceRequest(HttpMethod.Post, $"api/agent/commands/{commandId}/result");
         request.Content = JsonContent.Create(new { success, result }, options: JsonDefaults.Standard);
         using var response = await _http.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "명령 결과 전송", cancellationToken);
     }
 
     public async Task DownloadPackageAsync(string relativePath, string destination, CancellationToken cancellationToken)
     {
         using var request = DeviceRequest(HttpMethod.Get, relativePath.TrimStart('/'));
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "파일 다운로드", cancellationToken);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         var temporary = destination + ".download";
         try
@@ -105,6 +105,29 @@ internal sealed class AgentApiClient : IDisposable
         var request = new HttpRequestMessage(method, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return request;
+    }
+
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string operation, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        var serverMessage = body;
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
+                serverMessage = error.GetString() ?? body;
+        }
+        catch { }
+        if (string.IsNullOrWhiteSpace(serverMessage)) serverMessage = response.ReasonPhrase ?? "응답 내용 없음";
+        RuntimeTrace.Write("agent.http.failure", new
+        {
+            operation,
+            statusCode = (int)response.StatusCode,
+            path = response.RequestMessage?.RequestUri?.AbsolutePath,
+            serverMessage,
+        });
+        throw new InvalidOperationException($"{operation} 실패 (HTTP {(int)response.StatusCode}): {serverMessage}");
     }
 
     public void Dispose() => _http.Dispose();
