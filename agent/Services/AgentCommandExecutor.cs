@@ -11,9 +11,11 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     private readonly PackageDeploymentService _packageDeployment = new(apiClient);
     private readonly UmeWindowController _umeController = umeController;
     private readonly AgentSettings _settings = settings;
+    private DateTimeOffset _nextIvisionTaskCheck = DateTimeOffset.MinValue;
 
     public async Task<int> ExecutePendingAsync(CancellationToken cancellationToken)
     {
+        EnsureIvisionLauncherTaskIfInstalled();
         var completed = 0;
         foreach (var command in await apiClient.GetCommandsAsync(cancellationToken))
         {
@@ -190,39 +192,28 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         var processes = GetIvisionProcesses();
         foreach (var process in processes) process.Dispose();
         StopIvision();
-        var path = @"C:\i-Vision Player\iVisionUpdater.exe";
-        if (!File.Exists(path)) throw new InvalidOperationException("iVisionUpdater.exe를 찾을 수 없습니다.");
+        if (!File.Exists(PrivilegedTaskBroker.IvisionUpdaterPath)) throw new InvalidOperationException("iVisionUpdater.exe를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
         // 이미 설치 시 등록된 관리자 권한 작업이 있으면 Agent 자신의 토큰과
         // 무관하게 작업을 실행할 수 있어야 한다. 기존 코드는 먼저
         // IsElevated()를 검사해 일반 토큰 Agent가 정상 등록된 작업까지
         // 실행하지 못하게 막고 있었다.
-        if (!PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask))
-        {
-            if (!EnsureIvisionLauncherTask(path))
-                throw new InvalidOperationException("i-vision 관리자 권한 실행 작업이 등록되지 않았습니다. Agent 설치를 관리자 권한으로 다시 진행해 주세요.");
-        }
+        if (!PrivilegedTaskBroker.EnsureIvisionLauncherTask(out var taskError))
+            throw new InvalidOperationException($"i-vision 관리자 권한 실행 작업을 등록하지 못했습니다. {taskError}");
         if (!PrivilegedTaskBroker.RunIvisionLauncher())
             throw new InvalidOperationException("i-vision 관리자 권한 실행 예약 작업을 시작하지 못했습니다.");
         return new { restarted = true, processes = new[] { "i-Vision.PlayAgent", "i-Vision.Player" }, elevation = "privileged-task-broker" };
     }
 
-    private static bool EnsureIvisionLauncherTask(string executable)
+    private void EnsureIvisionLauncherTaskIfInstalled()
     {
-        try
-        {
-            // 이전 버전은 ONCE 작업과 이전 exe 경로를 남길 수 있다. 재실행 시
-            // 현재 Agent 경로로 작업을 원자적으로 갱신해 Win10에서도 동일하게 동작시킨다.
-            if (!PrivilegedTaskBroker.IsElevated()) return false;
-            using (var delete = Process.Start(new ProcessStartInfo("schtasks.exe", $"/Delete /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /F")
-            { CreateNoWindow = true, UseShellExecute = false })) delete?.WaitForExit(3000);
-            using var create = Process.Start(new ProcessStartInfo("schtasks.exe",
-                $"/Create /TN \"{PrivilegedTaskBroker.IvisionLauncherTask}\" /TR \"\\\"{executable}\\\"\" /SC ONCE /ST 23:59 /RL HIGHEST /F")
-            { CreateNoWindow = true, UseShellExecute = false });
-            create?.WaitForExit(5000);
-            return create is not null && create.ExitCode == 0;
-        }
-        catch { return false; }
+        if (DateTimeOffset.UtcNow < _nextIvisionTaskCheck) return;
+        _nextIvisionTaskCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+        if (!File.Exists(PrivilegedTaskBroker.IvisionUpdaterPath) || PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask)) return;
+        if (!PrivilegedTaskBroker.EnsureIvisionLauncherTask(out var error))
+            RuntimeTrace.Write("ivision.launcher-task.ensure.failed", new { error });
+        else
+            RuntimeTrace.Write("ivision.launcher-task.ensure.succeeded");
     }
 
     private static object ScheduleWindowsShutdown()

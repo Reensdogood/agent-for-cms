@@ -224,12 +224,14 @@ internal sealed class UmeWindowController
 
     private static bool StartIvisionWithHighestTask(string fallbackPath)
     {
+        if (!PrivilegedTaskBroker.EnsureIvisionLauncherTask(out var taskError))
+        {
+            RuntimeTrace.Write("ivision.launcher-task.ensure.failed", new { error = taskError, source = "ume.close" });
+            return false;
+        }
         try
         {
-            using var run = Process.Start(new ProcessStartInfo("schtasks.exe", "/Run /TN \"Funnet i-Vision Launcher\"")
-            { CreateNoWindow = true, UseShellExecute = false });
-            run?.WaitForExit(5000);
-            if (run is not null && run.ExitCode == 0) return true;
+            if (PrivilegedTaskBroker.RunIvisionLauncher()) return true;
         }
         catch { }
 
