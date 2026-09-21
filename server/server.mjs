@@ -730,10 +730,10 @@ async function buildRegionalInstaller(region, version) {
       enrollmentKey: region.enrollment_key,
       regionName: region.name,
     }), "utf8");
-    await runDotnetPublish([agentProject, "-c", "Release", "-r", "win-x64", "--self-contained", "true", "--no-restore", "-p:EnableWindowsTargeting=true", `-p:Version=${version}`, "-p:PublishSingleFile=true", "-p:EnableCompressionInSingleFile=true", "-o", agentOutput]);
+    await runDotnetPublish([agentProject, "-c", "Release", "-r", "win-x64", "--self-contained", "true", "--no-restore", `-p:Version=${version}`, "-p:PublishSingleFile=true", "-p:EnableCompressionInSingleFile=true", "-o", agentOutput]);
     const agentPayload = path.join(agentOutput, "funnet-gwanak-agent.exe");
     if (!fs.existsSync(agentPayload)) throw new Error("Agent 실행 파일 빌드 결과를 찾지 못했습니다.");
-    await runDotnetPublish([installerProject, "-c", "Release", "-r", "win-x64", "--self-contained", "true", "--no-restore", "-p:EnableWindowsTargeting=true", `-p:Version=${version}`, "-p:PublishSingleFile=true", "-p:EnableCompressionInSingleFile=true", `-p:FunnetProvisioningFile=${provisioningPath}`, `-p:FunnetAgentPayloadFile=${agentPayload}`, "-o", installerOutput]);
+    await runDotnetPublish([installerProject, "-c", "Release", "-r", "win-x64", "--self-contained", "true", "--no-restore", `-p:Version=${version}`, "-p:PublishSingleFile=true", "-p:EnableCompressionInSingleFile=true", `-p:FunnetProvisioningFile=${provisioningPath}`, `-p:FunnetAgentPayloadFile=${agentPayload}`, "-o", installerOutput]);
     const installerPath = path.join(installerOutput, "funnet-agent-setup.exe");
     if (!fs.existsSync(installerPath)) throw new Error("지역별 설치 파일 빌드 결과를 찾지 못했습니다.");
     return installerPath;

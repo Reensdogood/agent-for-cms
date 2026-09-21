@@ -13,8 +13,8 @@ COPY installer ./installer
 RUN apt-get update \
   && apt-get install -y --no-install-recommends libicu72 libssl3 zlib1g \
   && rm -rf /var/lib/apt/lists/* \
-  && dotnet restore agent/Funnet.Gwanak.Agent.csproj -p:EnableWindowsTargeting=true \
-  && dotnet restore installer/Funnet.Gwanak.Agent.Installer.csproj -p:EnableWindowsTargeting=true \
+  && dotnet restore agent/Funnet.Gwanak.Agent.csproj \
+  && dotnet restore installer/Funnet.Gwanak.Agent.Installer.csproj \
   && mkdir -p /data/releases /data/agent-builds \
   && chown -R node:node /app /data
 USER node
