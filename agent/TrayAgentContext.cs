@@ -17,6 +17,8 @@ internal sealed class TrayAgentContext : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private int _shutdownStarted;
+    private int _resourcesDisposed;
     private DateTimeOffset _lastHeartbeat = DateTimeOffset.MinValue;
     private bool _meetingWindowWasVisible;
     private DateTimeOffset _lastInvitationAcceptAttempt = DateTimeOffset.MinValue;
@@ -221,10 +223,13 @@ internal sealed class TrayAgentContext : ApplicationContext
 
     private void ExitAgent()
     {
-        _stop.Cancel();
+        // ExitThread()가 ApplicationContext.Dispose()를 호출한다. 여기서
+        // 리소스까지 해제하면 using 블록의 Dispose와 겹쳐 이미 Dispose된
+        // CancellationTokenSource에 Cancel()을 다시 호출하게 된다.
+        if (Interlocked.Exchange(ref _shutdownStarted, 1) != 0) return;
+        RuntimeTrace.Write("agent.shutdown.requested");
+        try { _stop.Cancel(); } catch (ObjectDisposedException) { }
         _notifyIcon.Visible = false;
-        _notifyIcon.Dispose();
-        _apiClient.Dispose();
         ExitThread();
     }
 
@@ -244,8 +249,16 @@ internal sealed class TrayAgentContext : ApplicationContext
     {
         try
         {
-            var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Agent 실행 경로를 확인할 수 없습니다.");
-            Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory });
+            if (!PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.AgentTask))
+                throw new InvalidOperationException("Agent 관리자 권한 자동 실행 작업을 찾을 수 없습니다.");
+            // 새 exe를 먼저 직접 띄우면 기존 mutex가 남아 있어 새 인스턴스가
+            // 즉시 종료될 수 있다. 현재 인스턴스가 정리된 뒤 예약 작업이
+            // 관리자 권한 Agent를 시작하도록 별도 cmd 프로세스에 위임한다.
+            var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
+            start.ArgumentList.Add("/c");
+            start.ArgumentList.Add($"timeout /t 2 /nobreak >nul & schtasks /Run /TN \"{PrivilegedTaskBroker.AgentTask}\"");
+            if (Process.Start(start) is null) throw new InvalidOperationException("Agent 재시작 작업을 시작하지 못했습니다.");
+            RuntimeTrace.Write("agent.restart.requested", new { task = PrivilegedTaskBroker.AgentTask });
             ExitAgent();
         }
         catch (Exception exception) { SetStatus($"재시작 실패: {exception.Message}"); }
@@ -253,9 +266,10 @@ internal sealed class TrayAgentContext : ApplicationContext
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (disposing && Interlocked.Exchange(ref _resourcesDisposed, 1) == 0)
         {
-            _stop.Cancel();
+            RuntimeTrace.Write("agent.resources.dispose");
+            try { _stop.Cancel(); } catch (ObjectDisposedException) { }
             _notifyIcon.Dispose();
             _apiClient.Dispose();
             _sendLock.Dispose();
