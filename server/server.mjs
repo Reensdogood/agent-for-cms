@@ -3,7 +3,6 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
@@ -28,9 +27,6 @@ let enercareTokenRequest = null;
 // FUNNET_COOKIE_SECURE=false로 세션 쿠키를 저장할 수 있어야 한다.
 const secureCookies = process.env.FUNNET_COOKIE_SECURE === "true";
 const maxUploadBytes = Number(process.env.FUNNET_MAX_UPLOAD_BYTES || 1024 * 1024 * 1024);
-const agentBuilderEnabled = process.env.FUNNET_AGENT_BUILDER_ENABLED === "true";
-const agentBuildDir = path.join(dataDir, "agent-builds");
-let regionalBuildQueue = Promise.resolve();
 
 if (!adminPassword || adminPassword.length < 10) {
   throw new Error("FUNNET_ADMIN_PASSWORD must contain at least 10 characters.");
@@ -41,7 +37,6 @@ if (!enrollmentKey || enrollmentKey.length < 16) {
 
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(releaseDir, { recursive: true });
-fs.mkdirSync(agentBuildDir, { recursive: true });
 const db = new DatabaseSync(databasePath);
 db.exec(`
   PRAGMA journal_mode = WAL;
@@ -690,105 +685,6 @@ function streamRelease(res, release) {
   return fs.createReadStream(release.file_path).pipe(res);
 }
 
-function latestAgentRelease() {
-  const candidates = db.prepare("SELECT * FROM releases ORDER BY created_at DESC").all()
-    .filter((release) => isAgentReleaseName(release.file_name));
-  return candidates.reduce((latest, release) => (!latest || compareReleaseVersions(release.version, latest.version) > 0 ? release : latest), null);
-}
-
-function runDotnetPublish(args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("dotnet", args, { cwd: path.join(currentDir, ".."), stdio: ["ignore", "pipe", "pipe"] });
-    let output = "";
-    const capture = (chunk) => { output = `${output}${chunk}`.slice(-12000); };
-    child.stdout.on("data", capture);
-    child.stderr.on("data", capture);
-    child.on("error", (error) => reject(error));
-    child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`Agent 설치 파일 빌드에 실패했습니다. (dotnet exit ${code})\n${output}`)));
-  });
-}
-
-function queueRegionalBuild(task) {
-  const queued = regionalBuildQueue.then(task, task);
-  regionalBuildQueue = queued.catch(() => undefined);
-  return queued;
-}
-
-async function buildRegionalInstaller(region, version) {
-  if (!agentBuilderEnabled) throw new Error("지역별 Agent 설치 파일 빌더가 활성화되어 있지 않습니다.");
-  if (!/^[0-9]+(?:\.[0-9]+){1,3}$/.test(String(version))) throw new Error("최신 Agent 버전 형식이 올바르지 않습니다.");
-  const workDir = path.join(agentBuildDir, crypto.randomUUID());
-  const agentOutput = path.join(workDir, "agent");
-  const installerOutput = path.join(workDir, "installer");
-  const provisioningPath = path.join(workDir, "provisioning.json");
-  const agentProject = path.join(currentDir, "..", "agent", "Funnet.Gwanak.Agent.csproj");
-  const installerProject = path.join(currentDir, "..", "installer", "Funnet.Gwanak.Agent.Installer.csproj");
-  try {
-    await fs.promises.mkdir(workDir, { recursive: true });
-    await fs.promises.writeFile(provisioningPath, JSON.stringify({
-      serverBaseUrl: process.env.FUNNET_PUBLIC_SERVER_URL || "https://agent.funnet.kr",
-      enrollmentKey: region.enrollment_key,
-      regionName: region.name,
-    }), "utf8");
-    await runDotnetPublish([agentProject, "-c", "Release", "-r", "win-x64", "--self-contained", "true", "--no-restore", `-p:Version=${version}`, "-p:PublishSingleFile=true", "-p:EnableCompressionInSingleFile=true", "-o", agentOutput]);
-    const agentPayload = path.join(agentOutput, "funnet-gwanak-agent.exe");
-    if (!fs.existsSync(agentPayload)) throw new Error("Agent 실행 파일 빌드 결과를 찾지 못했습니다.");
-    await runDotnetPublish([installerProject, "-c", "Release", "-r", "win-x64", "--self-contained", "true", "--no-restore", `-p:Version=${version}`, "-p:PublishSingleFile=true", "-p:EnableCompressionInSingleFile=true", `-p:FunnetProvisioningFile=${provisioningPath}`, `-p:FunnetAgentPayloadFile=${agentPayload}`, "-o", installerOutput]);
-    const installerPath = path.join(installerOutput, "funnet-agent-setup.exe");
-    if (!fs.existsSync(installerPath)) throw new Error("지역별 설치 파일 빌드 결과를 찾지 못했습니다.");
-    return installerPath;
-  } catch (error) {
-    throw new Error(`지역 '${region.name}' Agent 설치 파일 생성 실패: ${error.message}`);
-  }
-}
-
-async function ensureRegionalAgentRelease(region, { force = false, actor = "system" } = {}) {
-  return queueRegionalBuild(async () => {
-    const latest = latestAgentRelease();
-    if (!latest) throw new Error("기준이 될 최신 Agent 배포 파일이 없습니다. 먼저 Agent 최신 버전을 등록해 주세요.");
-    const fileName = `funnet-agent-setup-${latest.version}.exe`;
-    const existing = db.prepare("SELECT * FROM releases WHERE region_id = ? AND version = ? AND file_name = ?").get(region.id, latest.version, fileName);
-    if (!force && existing && fs.existsSync(existing.file_path)) return { release: existing, created: false };
-
-    const installerPath = await buildRegionalInstaller(region, latest.version);
-    const id = crypto.randomUUID();
-    const destination = path.join(releaseDir, `${id}.exe`);
-    try {
-      await fs.promises.copyFile(installerPath, destination);
-      const bytes = await fs.promises.readFile(destination);
-      const release = { id, version: latest.version, region_id: region.id, file_name: fileName, file_path: destination, size_bytes: bytes.length, sha256: crypto.createHash("sha256").update(bytes).digest("hex"), created_by: actor, created_at: now() };
-      db.exec("BEGIN");
-      try {
-        const replaced = db.prepare("SELECT id, file_path FROM releases WHERE region_id = ? AND file_name = ?").all(region.id, fileName);
-        db.prepare("DELETE FROM releases WHERE region_id = ? AND file_name = ?").run(region.id, fileName);
-        db.prepare("INSERT INTO releases (id, version, region_id, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .run(release.id, release.version, release.region_id, release.file_name, release.file_path, release.size_bytes, release.sha256, release.created_by, release.created_at);
-        db.exec("COMMIT");
-        for (const item of replaced) { try { if (fs.existsSync(item.file_path)) fs.unlinkSync(item.file_path); } catch (error) { console.error(error); } }
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-      audit(actor, "region.agent_installer.build", region.id, { name: region.name, version: latest.version, force });
-      return { release, created: true };
-    } catch (error) {
-      try { if (fs.existsSync(destination)) fs.unlinkSync(destination); } catch {}
-      throw error;
-    } finally {
-      await fs.promises.rm(path.dirname(path.dirname(installerPath)), { recursive: true, force: true });
-    }
-  });
-}
-
-async function provisionMissingRegionalInstallers() {
-  if (!agentBuilderEnabled || !latestAgentRelease()) return;
-  const regions = db.prepare("SELECT * FROM regions ORDER BY created_at").all();
-  for (const region of regions) {
-    try { await ensureRegionalAgentRelease(region, { actor: "system" }); }
-    catch (error) { console.error(`Regional Agent installer provisioning failed for ${region.id}: ${error.message}`); }
-  }
-}
-
 function humanizeOsVersion(value, edition, displayVersion, buildValue, revisionValue) {
   // 서버 화면에는 빌드 번호로 추정한 OS 계열을 표시하지 않는다.
   // Agent가 보고한 사람이 읽을 수 있는 에디션과 릴리즈 버전만 사용한다.
@@ -1107,19 +1003,8 @@ async function handleApi(req, res, url) {
     const key = crypto.randomBytes(24).toString("base64url");
     db.prepare("INSERT INTO regions (id, name, enrollment_key, is_default, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)")
       .run(id, name, key, timestamp, timestamp);
-    const region = db.prepare("SELECT * FROM regions WHERE id = ?").get(id);
-    if (!agentBuilderEnabled) {
-      audit(session.username, "region.create", id, { name, agentInstallerGenerated: false });
-      return json(res, 201, { region: regionDto(region), installer: null, serverBaseUrl: publicServerUrl(req) });
-    }
-    try {
-      const installer = await ensureRegionalAgentRelease(region, { actor: session.username });
-      audit(session.username, "region.create", id, { name, agentInstallerVersion: installer.release.version });
-      return json(res, 201, { region: regionDto(region), installer: releaseDto({ ...installer.release, region_name: region.name }), serverBaseUrl: publicServerUrl(req) });
-    } catch (error) {
-      db.prepare("DELETE FROM regions WHERE id = ?").run(id);
-      return json(res, 503, { error: `지역을 만들지 못했습니다. ${error.message}` });
-    }
+    audit(session.username, "region.create", id, { name });
+    return json(res, 201, { region: regionDto(db.prepare("SELECT * FROM regions WHERE id = ?").get(id)), serverBaseUrl: publicServerUrl(req) });
   }
 
   const regionRotateMatch = url.pathname.match(/^\/api\/regions\/([a-f0-9-]+)\/rotate-key$/i);
@@ -1130,35 +1015,9 @@ async function handleApi(req, res, url) {
     const region = db.prepare("SELECT * FROM regions WHERE id = ?").get(regionRotateMatch[1]);
     if (!region) return json(res, 404, { error: "지역을 찾을 수 없습니다." });
     const nextKey = crypto.randomBytes(24).toString("base64url");
-    if (!agentBuilderEnabled) {
-      db.prepare("UPDATE regions SET enrollment_key = ?, updated_at = ? WHERE id = ?").run(nextKey, now(), region.id);
-      audit(session.username, "region.rotate_key", region.id, { name: region.name, agentInstallerGenerated: false });
-      return json(res, 200, { region: regionDto(db.prepare("SELECT * FROM regions WHERE id = ?").get(region.id)), installer: null, serverBaseUrl: publicServerUrl(req) });
-    }
-    const rotated = { ...region, enrollment_key: nextKey, updated_at: now() };
-    try {
-      const installer = await ensureRegionalAgentRelease(rotated, { force: true, actor: session.username });
-      db.prepare("UPDATE regions SET enrollment_key = ?, updated_at = ? WHERE id = ?").run(nextKey, rotated.updated_at, region.id);
-      audit(session.username, "region.rotate_key", region.id, { name: region.name, agentInstallerVersion: installer.release.version });
-      return json(res, 200, { region: regionDto(db.prepare("SELECT * FROM regions WHERE id = ?").get(region.id)), installer: releaseDto({ ...installer.release, region_name: region.name }), serverBaseUrl: publicServerUrl(req) });
-    } catch (error) {
-      return json(res, 503, { error: `등록 키를 재발급하지 못했습니다. ${error.message}` });
-    }
-  }
-
-  const regionInstallerMatch = url.pathname.match(/^\/api\/regions\/([a-f0-9-]+)\/agent-installer$/i);
-  if (req.method === "POST" && regionInstallerMatch) {
-    const session = requireAdmin(req, res, true);
-    if (!session) return;
-    const region = db.prepare("SELECT * FROM regions WHERE id = ?").get(regionInstallerMatch[1]);
-    if (!region) return json(res, 404, { error: "지역을 찾을 수 없습니다." });
-    if (sameRegionOnly(session) && region.id !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 내려받을 수 있습니다." });
-    try {
-      const installer = await ensureRegionalAgentRelease(region, { actor: session.username });
-      return json(res, 200, { release: releaseDto({ ...installer.release, region_name: region.name }), generated: installer.created });
-    } catch (error) {
-      return json(res, 503, { error: `Agent 설치 파일을 준비하지 못했습니다. ${error.message}` });
-    }
+    db.prepare("UPDATE regions SET enrollment_key = ?, updated_at = ? WHERE id = ?").run(nextKey, now(), region.id);
+    audit(session.username, "region.rotate_key", region.id, { name: region.name });
+    return json(res, 200, { region: regionDto(db.prepare("SELECT * FROM regions WHERE id = ?").get(region.id)), serverBaseUrl: publicServerUrl(req) });
   }
 
   if (req.method === "GET" && url.pathname === "/api/releases") {
@@ -1863,7 +1722,6 @@ scheduler.unref();
 if (process.env.NODE_ENV !== "test") {
   server.listen(port, () => {
     console.log(`funnet-gwanak-control ${appVersion} listening on port ${port}`);
-    void provisionMissingRegionalInstallers();
   });
   const shutdown = () => server.close(() => { clearInterval(scheduler); db.close(); process.exit(0); });
   process.on("SIGTERM", shutdown);

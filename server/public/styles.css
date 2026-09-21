@@ -127,7 +127,7 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 .22rem 
 .metric-dot.region { background: var(--blue); }
 .metric-empty { margin: 0; color: var(--muted); font-size: .78rem; }
 .region-key-list { display: grid; gap: .55rem; padding: 0 1.4rem 1.4rem; }
-.region-key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: .55rem; padding: .75rem 0; border-top: 1px solid var(--line); }
+.region-key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .55rem; padding: .75rem 0; border-top: 1px solid var(--line); }
 .region-key-row strong, .region-key-row code { display: block; }
 .region-key-row strong { font-size: .82rem; }
 .region-key-row code { overflow: hidden; margin-top: .15rem; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .68rem; text-overflow: ellipsis; }

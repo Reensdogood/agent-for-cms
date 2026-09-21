@@ -12,8 +12,6 @@ services:
       FUNNET_ADMIN_USER: ${FUNNET_ADMIN_USER:?required}
       FUNNET_ADMIN_PASSWORD: ${FUNNET_ADMIN_PASSWORD:?required}
       FUNNET_ENROLLMENT_KEY: ${FUNNET_ENROLLMENT_KEY:?required}
-      # 지역 생성·키 재발급 시 최신 Agent 소스를 해당 지역 키로 다시 빌드한다.
-      FUNNET_AGENT_BUILDER_ENABLED: "true"
       ENERCARE_BASE_URL: ${ENERCARE_BASE_URL:-https://dwcon.enercare.co.kr:18443}
       ENERCARE_DWD_SERVER_ID: ${ENERCARE_DWD_SERVER_ID:-FUNNET}
       ENERCARE_DWD_GROUP_ID: ${ENERCARE_DWD_GROUP_ID:-FUNNET}

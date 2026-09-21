@@ -18,11 +18,10 @@
     <ApplicationIcon>assets\funnet-tray-icon.ico</ApplicationIcon>
     <!-- Build-Release supplies a generated region-specific provisioning file. -->
     <FunnetProvisioningFile Condition="'$(FunnetProvisioningFile)' == ''">$(MSBuildProjectDirectory)\payload\provisioning.example.json</FunnetProvisioningFile>
-    <FunnetAgentPayloadFile Condition="'$(FunnetAgentPayloadFile)' == ''">$(MSBuildProjectDirectory)\payload\funnet-gwanak-agent.exe</FunnetAgentPayloadFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
-    <EmbeddedResource Include="$(FunnetAgentPayloadFile)" LogicalName="AgentPayload" />
+    <EmbeddedResource Include="payload\funnet-gwanak-agent.exe" LogicalName="AgentPayload" />
     <EmbeddedResource Include="$(FunnetProvisioningFile)" LogicalName="ProvisioningPayload" />
     <EmbeddedResource Include="assets\funnet-logo.png" LogicalName="FunnetLogo" />
     <EmbeddedResource Include="assets\funnet-tray-icon.ico" LogicalName="FunnetTrayIcon" />
