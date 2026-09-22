@@ -127,7 +127,6 @@ internal sealed class InstallerForm : Form
 
     private void LoadExistingSettings()
     {
-        if (!_configureOnly) return;
         var path = Path.Combine(_installDirectory, "agent-settings.json");
         if (!File.Exists(path)) return;
         try
@@ -149,10 +148,13 @@ internal sealed class InstallerForm : Form
                 }
                 if (display.TryGetProperty("port", out var port) && port.ValueKind == JsonValueKind.String) _displayPort.Text = port.GetString() ?? "";
             }
-            _install.Text = "설정 저장";
-            _cancelSettings.Visible = true;
-            _uninstall.Text = "Agent 제거";
-            Text = "Funnet 관악 Agent 설정";
+            if (_configureOnly)
+            {
+                _install.Text = "설정 저장";
+                _cancelSettings.Visible = true;
+                _uninstall.Text = "Agent 제거";
+                Text = "Funnet 관악 Agent 설정";
+            }
         }
         catch { }
     }
@@ -356,8 +358,11 @@ internal sealed class InstallerForm : Form
             var port = _displayPort.Text.Trim();
             // 신규 설치만 설치 파일에 포함된 지역 키로 등록한다. 업데이트와
             // 설정 변경은 기존 등록 토큰을 유지하므로 다른 지역으로 재등록하지 않는다.
-            var key = _configureOnly ? _existingEnrollmentKey : _provisioning.EnrollmentKey.Trim();
-            var keyFingerprint = _configureOnly ? _existingEnrollmentKeyFingerprint : EnrollmentKeyFingerprint(key);
+            // 자동 업데이트는 기존 장비의 서버·토큰·디스플레이 설정을 그대로
+            // 유지해야 한다. 지역 설치 파일에 포함된 등록 키를 다시 기록하면
+            // 등록 완료 뒤 비워 둔 키가 설정 파일에 다시 남을 수 있다.
+            var key = (_configureOnly || _updateOnly) ? _existingEnrollmentKey : _provisioning.EnrollmentKey.Trim();
+            var keyFingerprint = (_configureOnly || _updateOnly) ? _existingEnrollmentKeyFingerprint : EnrollmentKeyFingerprint(key);
             // 새 지역 설치 파일은 이전 Agent의 장비 토큰을 재사용하면 안 된다.
             // 자동 업데이트와 트레이 설정 변경은 같은 장비의 토큰을 유지한다.
             if (!_configureOnly && !_updateOnly && ShouldResetIdentityForNewEnrollment(keyFingerprint)) ResetDeviceIdentity();
