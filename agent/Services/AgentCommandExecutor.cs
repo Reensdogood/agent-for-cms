@@ -72,16 +72,15 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     private async Task<object> DisplayInputAsync(AgentApiClient.AgentCommand command, CancellationToken ct)
     {
         await using var client = CreateDisplayClient();
-        var input = command.Payload.GetProperty("input").GetString() switch
-        {
-            "HDMI1" => SamsungInput.Hdmi1,
-            "HDMI2" => SamsungInput.Hdmi2,
-            _ => throw new InvalidOperationException("input은 HDMI1 또는 HDMI2여야 합니다.")
-        };
+        var requestedInput = command.Payload.GetProperty("input").GetString();
+        if (!SamsungDisplayCapabilities.TryParseInput(requestedInput, out var input))
+            throw new InvalidOperationException("input은 HDMI1, HDMI2 또는 HDMI3여야 합니다.");
+        if (!SamsungDisplayCapabilities.SupportsInput(_settings.Display.Model, input))
+            throw new InvalidOperationException($"{_settings.Display.Model} 모델은 {SamsungDisplayCapabilities.NameOf(input)} 입력을 지원하도록 설정되어 있지 않습니다.");
         try
         {
             await client.SetInputAsync(input, ct);
-            return new { input = input.ToString(), verification = "confirmed" };
+            return new { input = SamsungDisplayCapabilities.NameOf(input), verification = "confirmed" };
         }
         catch (Exception error) when (error is DisplayControlException)
         {
@@ -92,7 +91,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
             {
                 var actual = await client.GetInputAsync(ct);
                 if (actual == input)
-                    return new { input = input.ToString(), verification = "confirmed_after_delayed_response" };
+                    return new { input = SamsungDisplayCapabilities.NameOf(input), verification = "confirmed_after_delayed_response" };
             }
             catch (Exception retryError) when (retryError is DisplayControlException)
             {
@@ -120,7 +119,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         return new
         {
             power = power.Value is SamsungPowerState p ? p == SamsungPowerState.On ? "on" : "off" : null,
-            input = input.Value is SamsungInput i ? i == SamsungInput.Hdmi1 ? "HDMI1" : "HDMI2" : null,
+            input = input.Value is SamsungInput i ? SamsungDisplayCapabilities.NameOf(i) : null,
             volume = volume.Value,
             connection = connected ? (standby ? "standby" : "connected") : "timeout",
             partial = errors.Count > 0,

@@ -17,6 +17,7 @@ internal enum SamsungInput : byte
 {
     Hdmi1 = 0x21,
     Hdmi2 = 0x23,
+    Hdmi3 = 0x31,
 }
 
 internal sealed record SamsungMdcResponse(

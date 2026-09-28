@@ -30,6 +30,8 @@ public sealed class SamsungMdcProtocolTests
             SamsungMdcProtocol.BuildSet(SamsungMdcCommand.InputSource, (byte)SamsungInput.Hdmi1));
         Assert.Equal([0xAA, 0x14, 0x00, 0x01, 0x23, 0x38],
             SamsungMdcProtocol.BuildSet(SamsungMdcCommand.InputSource, (byte)SamsungInput.Hdmi2));
+        Assert.Equal([0xAA, 0x14, 0x00, 0x01, 0x31, 0x46],
+            SamsungMdcProtocol.BuildSet(SamsungMdcCommand.InputSource, (byte)SamsungInput.Hdmi3));
     }
 
     [Fact]

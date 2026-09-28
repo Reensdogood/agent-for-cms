@@ -746,10 +746,27 @@ function clearPendingDisplayCommands(deviceId) {
   return Number(db.prepare("DELETE FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status IN ('pending','delivered')").run(deviceId).changes || 0);
 }
 
+const knownDisplayInputs = new Set(["HDMI1", "HDMI2", "HDMI3"]);
+
+function displayInputsForHealth(health) {
+  const declared = Array.isArray(health?.display?.inputSources)
+    ? health.display.inputSources.map((value) => String(value || "").toUpperCase()).filter((value) => knownDisplayInputs.has(value))
+    : [];
+  if (declared.length) return [...new Set(declared)];
+  // 이전 Agent는 HDMI3 MDC 값을 이해하지 못하므로, 새 Health 계약을 보고하기 전에는
+  // 기존 HDMI1/HDMI2 범위만 허용한다. 업데이트 직후 첫 heartbeat부터 HDMI3이 열린다.
+  return ["HDMI1", "HDMI2"];
+}
+
+function deviceSupportsDisplayInput(health, input) {
+  return displayInputsForHealth(health).includes(String(input || "").toUpperCase());
+}
+
 function deviceDto(row) {
   let displayEnabled = false;
+  let displayInputs = ["HDMI1", "HDMI2"];
   let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null; let agentElevated = null;
-  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
+  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); displayInputs = displayInputsForHealth(health); osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
   const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
   if (displayCheck?.status === "completed") displayConnection = "정상";
@@ -778,6 +795,7 @@ function deviceDto(row) {
     foregroundApp: row.foreground_app,
     lastSeenAt: row.last_seen_at,
     displayEnabled,
+    displayInputs,
     smartPlug,
     displayConnection,
     displayCheckedAt: displayCheck?.completed_at || null,
@@ -1434,7 +1452,8 @@ async function handleApi(req, res, url) {
     if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 제어할 수 있습니다." });
     if (!device.approved) return json(res, 400, { error: "승인된 장비만 제어할 수 있습니다." });
     const healthRow = db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(device.id);
-    try { if (!JSON.parse(healthRow?.last_health_json || "{}").display?.enabled) return json(res, 409, { error: "이 장비는 TV 제어가 비활성화되어 있습니다." }); } catch { return json(res, 409, { error: "장비의 TV 제어 설정을 확인할 수 없습니다." }); }
+    let deviceHealth;
+    try { deviceHealth = JSON.parse(healthRow?.last_health_json || "{}"); if (!deviceHealth.display?.enabled) return json(res, 409, { error: "이 장비는 TV 제어가 비활성화되어 있습니다." }); } catch { return json(res, 409, { error: "장비의 TV 제어 설정을 확인할 수 없습니다." }); }
     const kind = displayCommandMatch[2].toLowerCase();
     if (kind === "status") {
       clearPendingDisplayCommands(device.id);
@@ -1450,7 +1469,8 @@ async function handleApi(req, res, url) {
       payload = { on: body.on };
     } else if (kind === "input") {
       const input = String(body.input || "").toUpperCase();
-      if (!["HDMI1", "HDMI2"].includes(input)) return json(res, 400, { error: "input은 HDMI1 또는 HDMI2여야 합니다." });
+      if (!knownDisplayInputs.has(input)) return json(res, 400, { error: "input은 HDMI1, HDMI2 또는 HDMI3여야 합니다." });
+      if (!deviceSupportsDisplayInput(deviceHealth, input)) return json(res, 409, { error: `${input}은 이 장비 모델에서 사용할 수 없습니다.` });
       payload = { input };
     } else {
       const value = Number(body.value);
@@ -1566,16 +1586,16 @@ async function handleApi(req, res, url) {
     const body = await readJson(req);
     const kind = displayBulkMatch[1].toLowerCase();
     const payload = kind === "power" ? { on: Boolean(body.on) } : { input: String(body.input || "").toUpperCase() };
-    if (kind === "input" && !["HDMI1", "HDMI2"].includes(payload.input)) return json(res, 400, { error: "input은 HDMI1 또는 HDMI2여야 합니다." });
+    if (kind === "input" && !knownDisplayInputs.has(payload.input)) return json(res, 400, { error: "input은 HDMI1, HDMI2 또는 HDMI3여야 합니다." });
     const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
     const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
     const args = sameRegionOnly(session) ? [session.regionId] : [];
     const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
-    const enabledRows = rows.filter((row) => { try { return Boolean(JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(row.id)?.last_health_json || "{}").display?.enabled); } catch { return false; } });
+    const enabledRows = rows.filter((row) => { try { const health = JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(row.id)?.last_health_json || "{}"); return Boolean(health.display?.enabled) && (kind !== "input" || deviceSupportsDisplayInput(health, payload.input)); } catch { return false; } });
     const commandIds = enabledRows.map((row) => { clearPendingDisplayCommands(row.id); const id = crypto.randomUUID(); insert.run(id, row.id, `display.${kind}`, JSON.stringify(payload), now()); return { deviceId: row.id, commandId: id }; });
     audit(session.username, `display.bulk.${kind}`, "ALL", { payload, queued: commandIds.length });
-    return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
+    return json(res, 202, { queued: commandIds.length, skippedUnsupported: kind === "input" ? rows.length - enabledRows.length : 0, commands: commandIds, status: "pending" });
   }
 
   const ivisionBulkMatch = url.pathname.match(/^\/api\/ivision\/bulk\/(stop|restart)$/i);

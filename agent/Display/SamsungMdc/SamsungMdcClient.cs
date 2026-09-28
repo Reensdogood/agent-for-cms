@@ -27,8 +27,9 @@ internal sealed class SamsungMdcClient(ISerialTransport transport, byte displayI
         {
             (byte)SamsungInput.Hdmi1 => SamsungInput.Hdmi1,
             (byte)SamsungInput.Hdmi2 => SamsungInput.Hdmi2,
+            (byte)SamsungInput.Hdmi3 => SamsungInput.Hdmi3,
             _ => throw new DisplayControlException(DisplayErrorCode.UnsupportedCommand,
-                $"Current Samsung input 0x{value:X2} is outside the P2 HDMI1/HDMI2 scope.")
+                $"Current Samsung input 0x{value:X2} is outside the supported HDMI1/HDMI2/HDMI3 scope.")
         };
     }
 

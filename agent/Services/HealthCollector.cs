@@ -5,6 +5,7 @@ using System.Security.Principal;
 using Microsoft.Win32;
 using Funnet.Gwanak.Agent.Infrastructure;
 using Funnet.Gwanak.Agent.Models;
+using Funnet.Gwanak.Agent.Display.SamsungMdc;
 
 namespace Funnet.Gwanak.Agent.Services;
 
@@ -37,7 +38,8 @@ internal sealed class HealthCollector
             versions.FirstOrDefault(),
             versions)
         {
-            Display = new DisplayHealth(_settings.Display.Enabled, _settings.Display.Vendor, _settings.Display.Model, _settings.Display.Port),
+            Display = new DisplayHealth(_settings.Display.Enabled, _settings.Display.Vendor, _settings.Display.Model, _settings.Display.Port,
+                SamsungDisplayCapabilities.InputsForModel(_settings.Display.Model).Select(SamsungDisplayCapabilities.NameOf).ToArray()),
             OsEdition = os.Edition,
             OsDisplayVersion = os.DisplayVersion,
             OsBuild = os.Build,
