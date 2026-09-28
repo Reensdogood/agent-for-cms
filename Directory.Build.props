@@ -1,0 +1,11 @@
+<Project>
+  <!-- All Windows deliverables inherit this author/developer identity. -->
+  <PropertyGroup>
+    <Authors>김린</Authors>
+    <Copyright>Copyright © 2026 김린 (doltongs@naver.com)</Copyright>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="Developer" Value="김린" />
+    <AssemblyMetadata Include="DeveloperEmail" Value="doltongs@naver.com" />
+  </ItemGroup>
+</Project>

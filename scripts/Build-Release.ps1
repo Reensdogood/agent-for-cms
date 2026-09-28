@@ -45,7 +45,7 @@ $serverStage = Join-Path $distRoot "server-package"
 New-Item -ItemType Directory -Path $serverStage -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot "server") -Destination $serverStage -Recurse
 Copy-Item -LiteralPath (Join-Path $projectRoot "deploy") -Destination $serverStage -Recurse
-Copy-Item -LiteralPath (Join-Path $projectRoot "package.json"),(Join-Path $projectRoot "Dockerfile"),(Join-Path $projectRoot "compose.yaml"),(Join-Path $projectRoot ".dockerignore") -Destination $serverStage
+Copy-Item -LiteralPath (Join-Path $projectRoot "package.json"),(Join-Path $projectRoot "Dockerfile"),(Join-Path $projectRoot "compose.yaml"),(Join-Path $projectRoot ".dockerignore"),(Join-Path $projectRoot "DEVELOPER.md"),(Join-Path $projectRoot "LICENSE") -Destination $serverStage
 Compress-Archive -Path (Join-Path $serverStage "*") -DestinationPath (Join-Path $distRoot "funnet-gwanak-server-$Version.zip") -CompressionLevel Optimal
 
 # Some field PCs still invoke Windows PowerShell versions without Get-FileHash.

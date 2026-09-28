@@ -4,6 +4,11 @@
 
 Funnet Agent Integrated Management is a Windows Agent plus web server MVP for managing regional PCs that run UME video meetings and i-vision DID software.
 
+## Developer identity
+
+- Developer: 김린 (`doltongs@naver.com`)
+- New Windows, server, and Android deliverables must retain this developer identity in their platform metadata. See `DEVELOPER.md`.
+
 Current public server:
 
 - `https://agent.funnet.kr`

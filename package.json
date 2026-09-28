@@ -1,6 +1,8 @@
 {
   "name": "funnet-gwanak-control",
   "version": "1.0.0",
+  "author": "김린 <doltongs@naver.com>",
+  "contributors": ["김린 <doltongs@naver.com>"],
   "private": true,
   "type": "module",
   "scripts": {
