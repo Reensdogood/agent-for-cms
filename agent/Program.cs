@@ -16,6 +16,14 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         RuntimeTrace.Write("agent.main.start", new { args = args.Where(x => !x.Contains("key", StringComparison.OrdinalIgnoreCase) && !x.Contains("token", StringComparison.OrdinalIgnoreCase)).ToArray() });
 
+        // 트레이 재시작은 기존 프로세스가 mutex를 반납한 뒤에만 다음 Agent를
+        // 실행할 수 있다. 이 모드는 UI/mutex 없이 그 인계를 끝까지 검증한다.
+        if (args.Any(value => string.Equals(value, "--restart-handoff", StringComparison.OrdinalIgnoreCase)))
+        {
+            Environment.ExitCode = AgentRestartHandoff.Run(args);
+            return;
+        }
+
         if (args.Any(value => string.Equals(value, "--display-port-test", StringComparison.OrdinalIgnoreCase)))
         {
             var inventory = new SerialDeviceDiscovery(new WindowsPnpDeviceSource()).Discover();
