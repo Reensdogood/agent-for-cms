@@ -1,11 +1,10 @@
 <Project>
-  <!-- All Windows deliverables inherit this author/developer identity. -->
-  <PropertyGroup>
-    <Authors>김린</Authors>
-    <Copyright>Copyright © 2026 김린 (doltongs@naver.com)</Copyright>
-  </PropertyGroup>
+  <!-- Custom assembly metadata is not rendered in Windows file properties. -->
   <ItemGroup>
     <AssemblyMetadata Include="Developer" Value="김린" />
     <AssemblyMetadata Include="DeveloperEmail" Value="doltongs@naver.com" />
+    <AssemblyMetadata Include="Publisher" Value="김린" />
+    <AssemblyMetadata Include="CopyrightOwner" Value="김린" />
+    <AssemblyMetadata Include="CopyrightYear" Value="2026" />
   </ItemGroup>
 </Project>

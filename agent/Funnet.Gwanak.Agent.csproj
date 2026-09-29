@@ -9,7 +9,7 @@
     <RootNamespace>Funnet.Gwanak.Agent</RootNamespace>
     <Version>1.0.0</Version>
     <Product>관악 Agent</Product>
-    <Company>김린</Company>
+    <Company>&#x200B;</Company>
     <Description>관악 장비 상태 및 UME 제어 Agent</Description>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

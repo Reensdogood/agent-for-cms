@@ -7,7 +7,8 @@
   "type": "module",
   "scripts": {
     "start": "node server/server.mjs",
-    "test": "node --test server/server.test.mjs"
+    "check:identity": "node scripts/verify-identity-metadata.mjs",
+    "test": "npm run check:identity && node --test server/server.test.mjs"
   },
   "engines": {
     "node": ">=24"
