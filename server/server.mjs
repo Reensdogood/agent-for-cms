@@ -425,16 +425,52 @@ function clearPendingDisplayCommands(deviceId) {
   return Number(db.prepare("DELETE FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status IN ('pending','delivered')").run(deviceId).changes || 0);
 }
 
+function capabilityFromHealth(health, name, fallback = true) {
+  const capabilities = health && typeof health.capabilities === "object" ? health.capabilities : null;
+  return capabilities && typeof capabilities[name] === "boolean" ? capabilities[name] : fallback;
+}
+
+function deviceHasCapability(deviceId, name, fallback = true) {
+  const row = db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(deviceId);
+  try { return capabilityFromHealth(JSON.parse(row?.last_health_json || "{}"), name, fallback); }
+  catch { return fallback; }
+}
+
+const knownDisplayInputs = new Set(["HDMI1", "HDMI2", "HDMI3"]);
+
+function displayInputsForHealth(health) {
+  const declared = Array.isArray(health?.display?.inputSources)
+    ? health.display.inputSources
+    : Array.isArray(health?.capabilities?.supportedInputs) ? health.capabilities.supportedInputs : [];
+  const inputs = declared.map((value) => String(value || "").toUpperCase()).filter((value) => knownDisplayInputs.has(value));
+  return inputs.length ? [...new Set(inputs)] : ["HDMI1", "HDMI2"];
+}
+
+function deviceSupportsDisplayInput(health, input) {
+  return displayInputsForHealth(health).includes(String(input || "").toUpperCase());
+}
+
 function deviceDto(row) {
   let displayEnabled = false;
   let osVersion = null;
-  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); osVersion = health.osVersion || null; } catch {}
+  let platform = "windows";
+  let capabilities = { displayControl: false, ume: true, ivision: true, windowsShutdown: true, agentUpdate: true, supportedInputs: ["HDMI1", "HDMI2"] };
+  try {
+    const health = JSON.parse(row.last_health_json || "{}");
+    displayEnabled = Boolean(health.display?.enabled);
+    osVersion = health.osVersion || null;
+    platform = health.platform === "android" ? "android" : "windows";
+    capabilities = { ...capabilities, displayControl: displayEnabled, ...(health.capabilities || {}) };
+    capabilities.supportedInputs = displayInputsForHealth(health);
+  } catch {}
   const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
   if (displayCheck?.status === "completed") displayConnection = "정상";
   else if (displayCheck?.status === "failed") displayConnection = "연결 실패";
   return {
     id: row.id,
+    platform,
+    capabilities,
     osVersion: humanizeOsVersion(osVersion),
     installationId: row.installation_id,
     regionId: row.region_id,
@@ -844,10 +880,12 @@ async function handleApi(req, res, url) {
     const body = await readJson(req);
     const requestedIds = Array.isArray(body.deviceIds) ? body.deviceIds.map(String) : [];
     const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
-    const devices = requestedIds.length
+    const candidateDevices = requestedIds.length
       ? db.prepare(`SELECT id FROM devices WHERE approved = 1${scope} AND id IN (${requestedIds.map(() => "?").join(",")})`).all(...(sameRegionOnly(session) ? [session.regionId] : []), ...requestedIds)
       : db.prepare(`SELECT id FROM devices WHERE approved = 1${scope}`).all(...(sameRegionOnly(session) ? [session.regionId] : []));
     const commandType = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.file_name) ? "agent.package.download" : "ume.package.download";
+    const requiredCapability = commandType === "agent.package.download" ? "agentUpdate" : "ume";
+    const devices = candidateDevices.filter((device) => deviceHasCapability(device.id, requiredCapability));
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
     const createdAt = now();
     for (const device of devices) insert.run(crypto.randomUUID(), device.id, commandType, JSON.stringify({
@@ -947,6 +985,7 @@ async function handleApi(req, res, url) {
     if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
     if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 제어할 수 있습니다." });
     if (!device.approved) return json(res, 400, { error: "승인된 장비만 제어할 수 있습니다." });
+    if (!deviceHasCapability(device.id, "windowsShutdown")) return json(res, 409, { error: "이 장비는 Windows 종료를 지원하지 않습니다." });
     const commandId = crypto.randomUUID();
     db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'windows.shutdown', '{}', ?)").run(commandId, device.id, now());
     audit(session.username, "windows.shutdown", device.id, { commandId });
@@ -961,7 +1000,8 @@ async function handleApi(req, res, url) {
     if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 제어할 수 있습니다." });
     if (!device.approved) return json(res, 400, { error: "승인된 장비만 제어할 수 있습니다." });
     const healthRow = db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(device.id);
-    try { if (!JSON.parse(healthRow?.last_health_json || "{}").display?.enabled) return json(res, 409, { error: "이 장비는 TV 제어가 비활성화되어 있습니다." }); } catch { return json(res, 409, { error: "장비의 TV 제어 설정을 확인할 수 없습니다." }); }
+    let deviceHealth;
+    try { deviceHealth = JSON.parse(healthRow?.last_health_json || "{}"); if (!deviceHealth.display?.enabled) return json(res, 409, { error: "이 장비는 TV 제어가 비활성화되어 있습니다." }); } catch { return json(res, 409, { error: "장비의 TV 제어 설정을 확인할 수 없습니다." }); }
     const kind = displayCommandMatch[2].toLowerCase();
     if (kind === "status") {
       clearPendingDisplayCommands(device.id);
@@ -977,7 +1017,8 @@ async function handleApi(req, res, url) {
       payload = { on: body.on };
     } else if (kind === "input") {
       const input = String(body.input || "").toUpperCase();
-      if (!["HDMI1", "HDMI2"].includes(input)) return json(res, 400, { error: "input은 HDMI1 또는 HDMI2여야 합니다." });
+      if (!knownDisplayInputs.has(input)) return json(res, 400, { error: "input은 HDMI1, HDMI2 또는 HDMI3여야 합니다." });
+      if (!deviceSupportsDisplayInput(deviceHealth, input)) return json(res, 409, { error: `${input}은 이 장비 모델에서 사용할 수 없습니다.` });
       payload = { input };
     } else {
       const value = Number(body.value);
@@ -1019,16 +1060,17 @@ async function handleApi(req, res, url) {
     const body = await readJson(req);
     const kind = displayBulkMatch[1].toLowerCase();
     const payload = kind === "power" ? { on: Boolean(body.on) } : { input: String(body.input || "").toUpperCase() };
-    if (kind === "input" && !["HDMI1", "HDMI2"].includes(payload.input)) return json(res, 400, { error: "input은 HDMI1 또는 HDMI2여야 합니다." });
+    if (kind === "input" && !knownDisplayInputs.has(payload.input)) return json(res, 400, { error: "input은 HDMI1, HDMI2 또는 HDMI3여야 합니다." });
     const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
     const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
     const args = sameRegionOnly(session) ? [session.regionId] : [];
-    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
+    const candidates = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
+    const rows = candidates;
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
-    const enabledRows = rows.filter((row) => { try { return Boolean(JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(row.id)?.last_health_json || "{}").display?.enabled); } catch { return false; } });
+    const enabledRows = rows.filter((row) => { try { const health = JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(row.id)?.last_health_json || "{}"); return Boolean(health.display?.enabled) && (kind !== "input" || deviceSupportsDisplayInput(health, payload.input)); } catch { return false; } });
     const commandIds = enabledRows.map((row) => { clearPendingDisplayCommands(row.id); const id = crypto.randomUUID(); insert.run(id, row.id, `display.${kind}`, JSON.stringify(payload), now()); return { deviceId: row.id, commandId: id }; });
     audit(session.username, `display.bulk.${kind}`, "ALL", { payload, queued: commandIds.length });
-    return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
+    return json(res, 202, { queued: commandIds.length, skippedUnsupported: kind === "input" ? rows.length - enabledRows.length : 0, commands: commandIds, status: "pending" });
   }
 
   const ivisionBulkMatch = url.pathname.match(/^\/api\/ivision\/bulk\/(stop|restart)$/i);
@@ -1040,7 +1082,8 @@ async function handleApi(req, res, url) {
     const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
     const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
     const args = sameRegionOnly(session) ? [session.regionId] : [];
-    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
+    const candidates = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
+    const rows = candidates.filter((row) => deviceHasCapability(row.id, "ivision"));
     const type = `ivision.${ivisionBulkMatch[1].toLowerCase()}`;
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, '{}', ?)");
     const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, type, now()); return { deviceId: row.id, commandId: id }; });
@@ -1057,7 +1100,8 @@ async function handleApi(req, res, url) {
     const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
     const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
     const args = sameRegionOnly(session) ? [session.regionId] : [];
-    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
+    const candidates = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
+    const rows = candidates.filter((row) => deviceHasCapability(row.id, "windowsShutdown"));
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'windows.shutdown', '{}', ?)");
     const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, now()); return { deviceId: row.id, commandId: id }; });
     audit(session.username, "windows.shutdown.bulk", "ALL", { queued: commandIds.length });
@@ -1130,6 +1174,7 @@ async function handleApi(req, res, url) {
     if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
     if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 실행할 수 있습니다." });
     if (!device.approved) return json(res, 400, { error: "승인된 장비만 실행할 수 있습니다." });
+    if (!deviceHasCapability(device.id, "ume")) return json(res, 409, { error: "이 장비는 UME 실행을 지원하지 않습니다." });
     const body = await readJson(req);
     const commandId = crypto.randomUUID();
     const scheduleId = body.scheduleId ? String(body.scheduleId).slice(0, 80) : null;
@@ -1149,6 +1194,7 @@ async function handleApi(req, res, url) {
     if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
     if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 실행할 수 있습니다." });
     if (!device.approved) return json(res, 400, { error: "승인된 장비만 실행할 수 있습니다." });
+    if (!deviceHasCapability(device.id, "ivision")) return json(res, 409, { error: "이 장비는 i-vision 제어를 지원하지 않습니다." });
     const commandId = crypto.randomUUID(); const type = `ivision.${ivisionMatch[2].toLowerCase()}`;
     db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, '{}', ?)").run(commandId, device.id, type, now());
     audit(session.username, type, device.id, { commandId });
@@ -1213,9 +1259,10 @@ function listSchedules() {
 }
 
 function enqueueUmeActivate(scheduleId, runKey, regionIds = []) {
-  const devices = regionIds?.length
+  const candidates = regionIds?.length
     ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND region_id IN (${regionIds.map(() => "?").join(",")})`).all(...regionIds)
     : db.prepare("SELECT id FROM devices WHERE approved = 1").all();
+  const devices = candidates.filter((device) => deviceHasCapability(device.id, "ume"));
   const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'ume.activate', ?, ?)");
   const timestamp = now();
   for (const device of devices) insert.run(crypto.randomUUID(), device.id, JSON.stringify({ scheduleId, runKey }), timestamp);

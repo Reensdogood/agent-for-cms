@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Driver support is checked at runtime. Keep this broad for PoC provisioning. -->
+    <usb-device />
+</resources>

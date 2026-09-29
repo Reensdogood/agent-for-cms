@@ -1,4 +1,5 @@
 server/data/
+server/poc-data/
 test-server-data/
 server/packages/
 agent/bin/
@@ -13,3 +14,8 @@ dist/
 dist-test/
 deploy/.env
 *.log
+android-tv-controller/.gradle/
+android-tv-controller/local.properties
+android-tv-controller/app/build/
+dist-android-poc/
+dist-android-funnet-test/

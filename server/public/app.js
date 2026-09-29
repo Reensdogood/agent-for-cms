@@ -131,10 +131,11 @@ function deviceRow(device) {
   badge.prepend(textElement("i", "", ""));
   status.append(badge);
   if (!device.approved) status.append(textElement("small", "pending-label", "승인 대기"));
+  const isAndroid = device.platform === "android";
   row.append(status, tableCell(device.regionName || "-", "region-name"), tableCell(device.displayName, "device-name"), tableCell(device.id, "mono"),
     tableCell(device.osVersion || "-", "os-version"), tableCell(device.agentVersion || "-"),
-    tableCell(device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""}` : "미감지"),
-    tableCell(device.ivisionRunning ? "실행" : "미실행"), tableCell(device.displayConnection || "미확인", `display-connection ${device.displayConnection === "정상" ? "connected" : device.displayConnection === "연결 실패" ? "failed" : ""}`), tableCell(formatTime(device.lastSeenAt)));
+    tableCell(isAndroid ? "해당 없음" : device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""}` : "미감지"),
+    tableCell(isAndroid ? "해당 없음" : device.ivisionRunning ? "실행" : "미실행"), tableCell(device.displayConnection || "미확인", `display-connection ${device.displayConnection === "정상" ? "connected" : device.displayConnection === "연결 실패" ? "failed" : ""}`), tableCell(formatTime(device.lastSeenAt)));
   const actions = document.createElement("td");
   if (!device.approved) {
     const approve = textElement("button", "small primary-soft", "승인");
@@ -154,6 +155,7 @@ function deviceRow(device) {
     finally { probe.disabled = false; }
   });
   const runUme = textElement("button", "small secondary", "UME 실행");
+  runUme.hidden = device.capabilities?.ume === false;
   runUme.disabled = !device.approved;
   runUme.addEventListener("click", async () => {
     if (!await confirmAction(`${device.displayName}에서 UME를 다시 실행할까요?`, "선택한 장비 1대에만 UME 전체화면/화상창 우선 명령을 보냅니다.", "실행")) return;
@@ -173,7 +175,8 @@ function deviceRow(device) {
     dialog.innerHTML = `<form method="dialog"><div class="tv-dialog-header"><span class="eyebrow">DISPLAY CONTROL</span><h3>${device.displayName} TV 제어</h3><p>현재 상태를 확인하고 원하는 동작을 선택하세요.</p><div class="tv-live-status">${displayText(current)}</div><button type="button" class="small secondary" id="readDisplayStatus">TV 현재 상태 조회</button></div><div class="dialog-actions"></div><div class="dialog-footer"><button value="cancel" class="small secondary">닫기</button></div></form>`;
     dialog.querySelector("#readDisplayStatus").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; try { await api(`/api/devices/${device.id}/display/status`, { method: "POST", body: "{}" }); button.textContent = "조회 중…"; setTimeout(async () => { try { const latest = await api(`/api/devices/${device.id}/display/status`); dialog.querySelector(".tv-live-status").textContent = displayText(latest.display || {}); } catch {} finally { button.disabled = false; button.textContent = "TV 현재 상태 조회"; } }, 1800); } catch (error) { toast(error.message, "error"); button.disabled = false; } });
     const actions = dialog.querySelector(".dialog-actions");
-    const commands = [["전원 ON", "power", { on: true }], ["전원 OFF", "power", { on: false }], ["HDMI1", "input", { input: "HDMI1" }], ["HDMI2", "input", { input: "HDMI2" }], ["현재 볼륨 +", "volume", { value: 55 }], ["현재 볼륨 −", "volume", { value: 45 }]];
+    const displayInputs = Array.isArray(device.capabilities?.supportedInputs) && device.capabilities.supportedInputs.length ? device.capabilities.supportedInputs : ["HDMI1", "HDMI2"];
+    const commands = [["전원 ON", "power", { on: true }], ["전원 OFF", "power", { on: false }], ...displayInputs.map((input) => [input, "input", { input }]), ["현재 볼륨 +", "volume", { value: 55 }], ["현재 볼륨 −", "volume", { value: 45 }]];
     for (const [label, kind, payload] of commands) { const active = (label.includes("ON") && String(current.power).toLowerCase() === "on") || (label.includes("OFF") && String(current.power).toLowerCase() === "off") || (label.toUpperCase() === String(current.input || "").toUpperCase()); const tone = label.startsWith("전원") ? "power-command" : label.startsWith("HDMI") ? "input-command" : "volume-command"; const b = textElement("button", `small primary-soft tv-command ${tone}${active ? " active-display" : ""}`, active ? `✓ ${label}` : label); b.type = "button"; b.addEventListener("click", async () => { b.disabled = true; try { await api(`/api/devices/${device.id}/display/${kind}`, { method: "POST", body: JSON.stringify(payload) }); toast(`${device.displayName}에 ${label} 명령을 보냈습니다.`); dialog.close(); } catch (error) { toast(error.message, "error"); b.disabled = false; } }); actions.append(b); }
     document.body.append(dialog); dialog.addEventListener("close", () => dialog.remove(), { once: true }); dialog.showModal();
   });
@@ -181,6 +184,8 @@ function deviceRow(device) {
   const ivisionStop = textElement("button", "small secondary", "i-vision 종료");
   const ivisionRestart = textElement("button", "small secondary", "i-vision 재실행");
   const windowsShutdown = textElement("button", "small danger", "Windows 종료");
+  ivisionStop.hidden = ivisionRestart.hidden = device.capabilities?.ivision === false;
+  windowsShutdown.hidden = device.capabilities?.windowsShutdown === false;
   ivisionStop.disabled = ivisionRestart.disabled = !device.approved;
   for (const [button, action, label] of [[ivisionStop, "stop", "종료"], [ivisionRestart, "restart", "재실행"]]) button.addEventListener("click", async () => { if (!await confirmAction(`${device.displayName}의 i-vision을 ${label}할까요?`, "현재 실행 중인 i-Vision.Player 프로세스 기준으로 처리합니다.", label)) return; button.disabled = true; try { await api(`/api/devices/${device.id}/ivision/${action}`, { method: "POST", body: "{}" }); toast(`i-vision ${label} 명령을 보냈습니다.`); setTimeout(loadDevices, 1800); } catch (error) { toast(error.message, "error"); } finally { button.disabled = !device.approved; } });
   windowsShutdown.disabled = !device.approved;
@@ -530,7 +535,8 @@ $$('[data-bulk-display]').forEach((button) => button.addEventListener("click", a
     const payload = kind === "power" ? { on: value === "on" } : { input: value };
     payload.deviceIds = devices.filter((device) => device.approved && device.status === "online" && (selectedRegionId === "all" || device.regionId === selectedRegionId)).map((device) => device.id);
     const result = await api(`/api/display/bulk/${kind}`, { method: "POST", body: JSON.stringify(payload) });
-    toast(`${result.queued}대의 온라인 장비에 ${value} 명령을 전송했습니다.`);
+    const skipped = result.skippedUnsupported ? ` · 미지원 ${result.skippedUnsupported}대 제외` : "";
+    toast(`${result.queued}대의 온라인 장비에 ${value} 명령을 전송했습니다.${skipped}`);
   } catch (error) { toast(error.message, "error"); }
   finally { button.disabled = false; }
 }));

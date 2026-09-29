@@ -249,3 +249,94 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   });
   assert.equal(heartbeatAfterDelete.status, 401);
 });
+
+test("Android TV controller capabilities keep Windows-only commands off the device", async () => {
+  const login = await fetch(`${base}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "test-admin-password" }),
+  });
+  assert.equal(login.status, 200);
+  const loginBody = await login.json();
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const regions = await (await fetch(`${base}/api/regions`, { headers: { Cookie: cookie } })).json();
+  const region = regions.regions.find((item) => item.isDefault) || regions.regions[0];
+
+  const registration = await fetch(`${base}/api/agent/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Enrollment-Key": region.enrollmentKey },
+    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "Android TV PoC", machineName: "TV-STICK", agentVersion: "android-0.4.0-poc" }),
+  });
+  assert.equal(registration.status, 201);
+  const registered = await registration.json();
+
+  const heartbeat = await fetch(`${base}/api/agent/heartbeat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${registered.deviceToken}` },
+    body: JSON.stringify({
+      localName: "Android TV PoC",
+      machineName: "TV-STICK",
+      agentVersion: "android-0.4.0-poc",
+      osVersion: "Android 14 (API 34)",
+      platform: "android",
+      display: { enabled: true, vendor: "samsung", model: "LH75QBC", port: "FTDI", inputSources: ["HDMI1", "HDMI2", "HDMI3"] },
+      capabilities: { displayControl: true, ume: false, ivision: false, windowsShutdown: false, agentUpdate: false, supportedInputs: ["HDMI1", "HDMI2", "HDMI3"] },
+    }),
+  });
+  assert.equal(heartbeat.status, 200);
+
+  const approve = await fetch(`${base}/api/devices/${registered.deviceId}/approve`, {
+    method: "POST",
+    headers: { Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken },
+  });
+  assert.equal(approve.status, 200);
+
+  const listed = await (await fetch(`${base}/api/devices`, { headers: { Cookie: cookie } })).json();
+  const android = listed.devices.find((item) => item.id === registered.deviceId);
+  assert.equal(android.platform, "android");
+  assert.equal(android.capabilities.windowsShutdown, false);
+  assert.deepEqual(android.capabilities.supportedInputs, ["HDMI1", "HDMI2", "HDMI3"]);
+
+  for (const path of ["windows/shutdown", "run-ume", "ivision/stop"]) {
+    const response = await fetch(`${base}/api/devices/${registered.deviceId}/${path}`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+      body: "{}",
+    });
+    assert.equal(response.status, 409, `${path} must be blocked for Android`);
+  }
+
+  const display = await fetch(`${base}/api/devices/${registered.deviceId}/display/power`, {
+    method: "POST",
+    headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+    body: JSON.stringify({ on: true }),
+  });
+  assert.equal(display.status, 202);
+
+  const hdmi3 = await fetch(`${base}/api/devices/${registered.deviceId}/display/input`, {
+    method: "POST",
+    headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+    body: JSON.stringify({ input: "HDMI3" }),
+  });
+  assert.equal(hdmi3.status, 202);
+
+  const qetHeartbeat = await fetch(`${base}/api/agent/heartbeat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${registered.deviceToken}` },
+    body: JSON.stringify({
+      localName: "Android TV PoC",
+      machineName: "TV-STICK",
+      agentVersion: "android-0.4.0-poc",
+      platform: "android",
+      display: { enabled: true, vendor: "samsung", model: "LH75QET", port: "FTDI", inputSources: ["HDMI1", "HDMI2"] },
+      capabilities: { displayControl: true, supportedInputs: ["HDMI1", "HDMI2"] },
+    }),
+  });
+  assert.equal(qetHeartbeat.status, 200);
+  const unsupportedHdmi3 = await fetch(`${base}/api/devices/${registered.deviceId}/display/input`, {
+    method: "POST",
+    headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+    body: JSON.stringify({ input: "HDMI3" }),
+  });
+  assert.equal(unsupportedHdmi3.status, 409);
+});

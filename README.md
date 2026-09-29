@@ -1,5 +1,7 @@
 # agent-for-cms
 
+Android TV Stick/Box용 USB-to-RS232 Samsung TV 제어 PoC가 `android-tv-controller`에 포함되어 있습니다. 기존 서버를 로컬 LAN에서 실행하고 APK를 빌드·설치하는 절차는 `docs/android-poc-installation.md`를 따릅니다. Android 앱은 Windows Agent와 별도 앱이지만 기존 장비 등록, Heartbeat, 명령 큐와 결과 보고 API를 재사용합니다.
+
 관악 지역 Windows 장비에서 UME 화상회의 실행과 i-vision DID 복귀 흐름을 관리하기 위한 운영 MVP입니다.
 
 ## 현재 구현 범위

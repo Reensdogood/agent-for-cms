@@ -12,7 +12,9 @@ Current public server:
 
 ## Version Policy
 
-Current version: `1.0.0`.
+Current server version: `1.1.0`.
+
+Android TV Controller PoC version: `0.1.0-poc`.
 
 From this point forward, every meaningful server, Agent, installer, or deployment package update should bump the minor version by `0.1.0`.
 
