@@ -33,8 +33,61 @@ public final class UsbSerialTransport implements SerialTransport {
         this.manager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
     }
 
+    /**
+     * Enumerates the attached USB serial device without claiming its interface or opening the port.
+     * This is safe to call from the periodic service heartbeat.
+     */
+    public static String inspect(Context context) throws DisplayException {
+        UsbSerialTransport transport = new UsbSerialTransport(context);
+        List<UsbSerialDriver> drivers = transport.scanDrivers();
+        UsbSerialDriver driver = transport.requireSingleDriver(drivers);
+        UsbDevice device = driver.getDevice();
+        transport.select(driver);
+        if (!transport.manager.hasPermission(device)) {
+            transport.requestPermission(device);
+            UsbSerialDiagnostics.failure("permission_required", DisplayErrorCode.USB_PERMISSION_REQUIRED.name(),
+                    "USB 접근 권한 승인을 기다리고 있습니다.");
+            throw new DisplayException(DisplayErrorCode.USB_PERMISSION_REQUIRED,
+                    "USB 접근 권한을 허용해 주세요: " + transport.name);
+        }
+        UsbSerialDiagnostics.update("stage", "device_ready");
+        UsbSerialDiagnostics.update("portOpen", false);
+        return transport.name + " · " + driver.getClass().getSimpleName();
+    }
+
     @Override public void open() throws DisplayException {
         if (isOpen()) return;
+        List<UsbSerialDriver> drivers = scanDrivers();
+        UsbSerialDriver driver = requireSingleDriver(drivers);
+        UsbDevice device = driver.getDevice();
+        select(driver);
+        if (!manager.hasPermission(device)) {
+            requestPermission(device);
+            UsbSerialDiagnostics.failure("permission_required", DisplayErrorCode.USB_PERMISSION_REQUIRED.name(),
+                    "USB 접근 권한 승인을 기다리고 있습니다.");
+            throw new DisplayException(DisplayErrorCode.USB_PERMISSION_REQUIRED,
+                    "USB 접근 권한을 허용해 주세요: " + name);
+        }
+        connection = manager.openDevice(device);
+        if (connection == null) throw new DisplayException(DisplayErrorCode.PORT_OPEN_FAILED, "USB 장치를 열 수 없습니다: " + name);
+        try {
+            port = driver.getPorts().get(0);
+            port.open(connection);
+            port.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+            try { port.setDTR(false); } catch (Exception ignored) {}
+            try { port.setRTS(false); } catch (Exception ignored) {}
+            discardInput();
+            UsbSerialDiagnostics.update("permission", true);
+            UsbSerialDiagnostics.update("portOpen", true);
+            UsbSerialDiagnostics.update("stage", "port_open");
+        } catch (Exception error) {
+            close();
+            UsbSerialDiagnostics.failure("port_open_failed", DisplayErrorCode.PORT_OPEN_FAILED.name(), error.getMessage());
+            throw new DisplayException(DisplayErrorCode.PORT_OPEN_FAILED, "USB Serial 포트를 열지 못했습니다: " + name, error);
+        }
+    }
+
+    private List<UsbSerialDriver> scanDrivers() {
         List<UsbSerialDriver> drivers = UsbSerialProber.getDefaultProber().findAllDrivers(manager);
         Map<Integer, UsbSerialDriver> driversByDevice = new HashMap<>();
         for (UsbSerialDriver candidate : drivers) driversByDevice.put(candidate.getDevice().getDeviceId(), candidate);
@@ -59,6 +112,10 @@ public final class UsbSerialTransport implements SerialTransport {
         put(diagnostic, "devices", detected);
         put(diagnostic, "serialParameters", "9600 8N1 · flow control none");
         UsbSerialDiagnostics.replace(diagnostic);
+        return drivers;
+    }
+
+    private UsbSerialDriver requireSingleDriver(List<UsbSerialDriver> drivers) throws DisplayException {
         if (drivers.isEmpty()) {
             UsbSerialDiagnostics.failure("driver_not_found", DisplayErrorCode.DEVICE_NOT_FOUND.name(),
                     "USB 장치는 열거됐지만 지원되는 USB Serial 드라이버를 찾지 못했습니다.");
@@ -71,7 +128,10 @@ public final class UsbSerialTransport implements SerialTransport {
             throw new DisplayException(DisplayErrorCode.DEVICE_NOT_FOUND,
                     "USB Serial 장치가 여러 개입니다. PoC에서는 한 개만 연결해 주세요.");
         }
-        UsbSerialDriver driver = drivers.get(0);
+        return drivers.get(0);
+    }
+
+    private void select(UsbSerialDriver driver) {
         UsbDevice device = driver.getDevice();
         name = device.getProductName() == null
                 ? String.format("USB %04X:%04X", device.getVendorId(), device.getProductId())
@@ -81,33 +141,13 @@ public final class UsbSerialTransport implements SerialTransport {
         UsbSerialDiagnostics.update("selectedProductId", String.format("0x%04X", device.getProductId()));
         UsbSerialDiagnostics.update("selectedDriver", driver.getClass().getSimpleName());
         UsbSerialDiagnostics.update("permission", manager.hasPermission(device));
-        if (!manager.hasPermission(device)) {
-            PendingIntent permission = PendingIntent.getBroadcast(context, 0,
-                    new Intent(USB_PERMISSION_ACTION).setPackage(context.getPackageName()),
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            manager.requestPermission(device, permission);
-            UsbSerialDiagnostics.failure("permission_required", DisplayErrorCode.USB_PERMISSION_REQUIRED.name(),
-                    "USB 접근 권한 승인을 기다리고 있습니다.");
-            throw new DisplayException(DisplayErrorCode.USB_PERMISSION_REQUIRED,
-                    "USB 접근 권한을 허용해 주세요: " + name);
-        }
-        connection = manager.openDevice(device);
-        if (connection == null) throw new DisplayException(DisplayErrorCode.PORT_OPEN_FAILED, "USB 장치를 열 수 없습니다: " + name);
-        try {
-            port = driver.getPorts().get(0);
-            port.open(connection);
-            port.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
-            try { port.setDTR(false); } catch (Exception ignored) {}
-            try { port.setRTS(false); } catch (Exception ignored) {}
-            discardInput();
-            UsbSerialDiagnostics.update("permission", true);
-            UsbSerialDiagnostics.update("portOpen", true);
-            UsbSerialDiagnostics.update("stage", "port_open");
-        } catch (Exception error) {
-            close();
-            UsbSerialDiagnostics.failure("port_open_failed", DisplayErrorCode.PORT_OPEN_FAILED.name(), error.getMessage());
-            throw new DisplayException(DisplayErrorCode.PORT_OPEN_FAILED, "USB Serial 포트를 열지 못했습니다: " + name, error);
-        }
+    }
+
+    private void requestPermission(UsbDevice device) {
+        PendingIntent permission = PendingIntent.getBroadcast(context, 0,
+                new Intent(USB_PERMISSION_ACTION).setPackage(context.getPackageName()),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        manager.requestPermission(device, permission);
     }
 
     @Override public boolean isOpen() { return port != null && port.isOpen(); }

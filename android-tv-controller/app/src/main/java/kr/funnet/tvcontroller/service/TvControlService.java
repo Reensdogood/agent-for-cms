@@ -132,9 +132,8 @@ public final class TvControlService extends Service {
 
     private void probeUsb() {
         lastUsbProbe = System.currentTimeMillis();
-        try (UsbSerialTransport transport = new UsbSerialTransport(this)) {
-            transport.open();
-            usbName = transport.name();
+        try {
+            usbName = UsbSerialTransport.inspect(this);
         } catch (DisplayException error) {
             usbName = error.code().name();
             updateStatus("USB 확인: " + safeMessage(error));
