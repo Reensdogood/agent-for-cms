@@ -12,7 +12,13 @@ import com.hoho.android.usbserial.driver.UsbSerialPort;
 import com.hoho.android.usbserial.driver.UsbSerialProber;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public final class UsbSerialTransport implements SerialTransport {
     public static final String USB_PERMISSION_ACTION = "kr.funnet.tvcontroller.USB_PERMISSION";
@@ -30,11 +36,38 @@ public final class UsbSerialTransport implements SerialTransport {
     @Override public void open() throws DisplayException {
         if (isOpen()) return;
         List<UsbSerialDriver> drivers = UsbSerialProber.getDefaultProber().findAllDrivers(manager);
+        Map<Integer, UsbSerialDriver> driversByDevice = new HashMap<>();
+        for (UsbSerialDriver candidate : drivers) driversByDevice.put(candidate.getDevice().getDeviceId(), candidate);
+        JSONArray detected = new JSONArray();
+        for (UsbDevice candidate : manager.getDeviceList().values()) {
+            UsbSerialDriver matched = driversByDevice.get(candidate.getDeviceId());
+            JSONObject item = new JSONObject();
+            put(item, "deviceName", candidate.getDeviceName());
+            put(item, "productName", candidate.getProductName());
+            put(item, "manufacturerName", candidate.getManufacturerName());
+            put(item, "vendorId", String.format("0x%04X", candidate.getVendorId()));
+            put(item, "productId", String.format("0x%04X", candidate.getProductId()));
+            put(item, "permission", manager.hasPermission(candidate));
+            put(item, "driver", matched == null ? JSONObject.NULL : matched.getClass().getSimpleName());
+            put(item, "portCount", matched == null ? 0 : matched.getPorts().size());
+            detected.put(item);
+        }
+        JSONObject diagnostic = new JSONObject();
+        put(diagnostic, "stage", "usb_enumerated");
+        put(diagnostic, "detectedDeviceCount", manager.getDeviceList().size());
+        put(diagnostic, "supportedDriverCount", drivers.size());
+        put(diagnostic, "devices", detected);
+        put(diagnostic, "serialParameters", "9600 8N1 · flow control none");
+        UsbSerialDiagnostics.replace(diagnostic);
         if (drivers.isEmpty()) {
+            UsbSerialDiagnostics.failure("driver_not_found", DisplayErrorCode.DEVICE_NOT_FOUND.name(),
+                    "USB 장치는 열거됐지만 지원되는 USB Serial 드라이버를 찾지 못했습니다.");
             throw new DisplayException(DisplayErrorCode.DEVICE_NOT_FOUND,
                     "지원되는 FTDI/CP210x/Prolific/CDC USB Serial 장치를 찾지 못했습니다.");
         }
         if (drivers.size() > 1) {
+            UsbSerialDiagnostics.failure("multiple_serial_devices", DisplayErrorCode.DEVICE_NOT_FOUND.name(),
+                    "지원되는 USB Serial 장치가 여러 개 감지됐습니다.");
             throw new DisplayException(DisplayErrorCode.DEVICE_NOT_FOUND,
                     "USB Serial 장치가 여러 개입니다. PoC에서는 한 개만 연결해 주세요.");
         }
@@ -43,11 +76,18 @@ public final class UsbSerialTransport implements SerialTransport {
         name = device.getProductName() == null
                 ? String.format("USB %04X:%04X", device.getVendorId(), device.getProductId())
                 : device.getProductName();
+        UsbSerialDiagnostics.update("selectedProductName", name);
+        UsbSerialDiagnostics.update("selectedVendorId", String.format("0x%04X", device.getVendorId()));
+        UsbSerialDiagnostics.update("selectedProductId", String.format("0x%04X", device.getProductId()));
+        UsbSerialDiagnostics.update("selectedDriver", driver.getClass().getSimpleName());
+        UsbSerialDiagnostics.update("permission", manager.hasPermission(device));
         if (!manager.hasPermission(device)) {
             PendingIntent permission = PendingIntent.getBroadcast(context, 0,
                     new Intent(USB_PERMISSION_ACTION).setPackage(context.getPackageName()),
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             manager.requestPermission(device, permission);
+            UsbSerialDiagnostics.failure("permission_required", DisplayErrorCode.USB_PERMISSION_REQUIRED.name(),
+                    "USB 접근 권한 승인을 기다리고 있습니다.");
             throw new DisplayException(DisplayErrorCode.USB_PERMISSION_REQUIRED,
                     "USB 접근 권한을 허용해 주세요: " + name);
         }
@@ -60,8 +100,12 @@ public final class UsbSerialTransport implements SerialTransport {
             try { port.setDTR(false); } catch (Exception ignored) {}
             try { port.setRTS(false); } catch (Exception ignored) {}
             discardInput();
+            UsbSerialDiagnostics.update("permission", true);
+            UsbSerialDiagnostics.update("portOpen", true);
+            UsbSerialDiagnostics.update("stage", "port_open");
         } catch (Exception error) {
             close();
+            UsbSerialDiagnostics.failure("port_open_failed", DisplayErrorCode.PORT_OPEN_FAILED.name(), error.getMessage());
             throw new DisplayException(DisplayErrorCode.PORT_OPEN_FAILED, "USB Serial 포트를 열지 못했습니다: " + name, error);
         }
     }
@@ -74,8 +118,8 @@ public final class UsbSerialTransport implements SerialTransport {
     }
 
     @Override public void write(byte[] data) throws DisplayException {
-        try { port.write(data, 1500); }
-        catch (IOException error) { throw new DisplayException(DisplayErrorCode.PORT_OPEN_FAILED, "USB Serial 쓰기 실패", error); }
+        try { port.write(data, 1500); UsbSerialDiagnostics.recordTx(data); }
+        catch (IOException error) { UsbSerialDiagnostics.failure("write_failed", DisplayErrorCode.PORT_OPEN_FAILED.name(), error.getMessage()); throw new DisplayException(DisplayErrorCode.PORT_OPEN_FAILED, "USB Serial 쓰기 실패", error); }
     }
 
     @Override public int read(byte[] destination, int offset, int length, int timeoutMs) throws DisplayException {
@@ -83,18 +127,25 @@ public final class UsbSerialTransport implements SerialTransport {
         try {
             int read = port.read(buffer, timeoutMs);
             if (read > 0) System.arraycopy(buffer, 0, destination, offset, Math.min(read, length));
+            UsbSerialDiagnostics.recordRx(buffer, read);
             return Math.max(read, 0);
         } catch (IOException error) {
+            UsbSerialDiagnostics.failure("read_failed", DisplayErrorCode.TIMEOUT.name(), error.getMessage());
             throw new DisplayException(DisplayErrorCode.TIMEOUT, "USB Serial 읽기 실패 또는 시간 초과", error);
         }
     }
 
     @Override public String name() { return name; }
 
+    private static void put(JSONObject target, String key, Object value) {
+        try { target.put(key, value == null ? JSONObject.NULL : value); } catch (JSONException ignored) {}
+    }
+
     @Override public void close() {
         if (port != null) try { port.close(); } catch (Exception ignored) {}
         if (connection != null) connection.close();
         port = null;
         connection = null;
+        UsbSerialDiagnostics.update("portOpen", false);
     }
 }

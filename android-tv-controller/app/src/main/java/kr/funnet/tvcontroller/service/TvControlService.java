@@ -32,6 +32,7 @@ import kr.funnet.tvcontroller.data.SettingsStore;
 import kr.funnet.tvcontroller.display.DisplayException;
 import kr.funnet.tvcontroller.display.SamsungMdcClient;
 import kr.funnet.tvcontroller.display.UsbSerialTransport;
+import kr.funnet.tvcontroller.display.UsbSerialDiagnostics;
 import kr.funnet.tvcontroller.network.ServerClient;
 
 public final class TvControlService extends Service {
@@ -154,6 +155,7 @@ public final class TvControlService extends Service {
         } catch (Exception error) {
             JSONObject failure = new JSONObject().put("error", safeMessage(error));
             if (error instanceof DisplayException display) failure.put("code", display.code().name());
+            failure.put("serialDiagnostics", UsbSerialDiagnostics.snapshot());
             envelope = new JSONObject().put("success", false).put("result", failure);
         }
         settings.rememberCompleted(id, envelope);

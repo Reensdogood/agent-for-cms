@@ -269,6 +269,22 @@ function deviceRow(device) {
     document.body.append(dialog); dialog.addEventListener("close", () => { clearInterval(statusTimer); dialog.remove(); }, { once: true }); dialog.showModal(); statusTimer = setInterval(refreshDialogStatus, 2500);
   });
   actions.append(tv);
+  if (device.platform === "android") {
+    const diagnostics = textElement("button", "small secondary", "USB 진단");
+    diagnostics.addEventListener("click", () => {
+      const value = device.serialDiagnostics || { stage: "not_reported", message: "아직 Android 앱에서 USB 진단 정보가 보고되지 않았습니다." };
+      const dialog = document.createElement("dialog");
+      const form = document.createElement("form"); form.method = "dialog";
+      form.append(textElement("p", "eyebrow", "ANDROID USB SERIAL"), textElement("h3", "", `${device.displayName} USB 진단`));
+      const description = textElement("p", "", "USB 인식과 TV 응답은 별도 단계입니다. 아래 정보로 FTDI 인식, 권한, 드라이버, 송수신 상태를 확인합니다.");
+      const output = textElement("pre", "mono usb-diagnostics", JSON.stringify(value, null, 2));
+      const footer = document.createElement("div"); footer.className = "dialog-footer";
+      const close = textElement("button", "small secondary", "닫기"); close.value = "cancel"; footer.append(close);
+      form.append(description, output, footer); dialog.append(form);
+      document.body.append(dialog); dialog.addEventListener("close", () => dialog.remove(), { once: true }); dialog.showModal();
+    });
+    actions.append(diagnostics);
+  }
   if (device.smartPlug || canManageSmartPlugs()) {
     const smartPlug = textElement("button", "small secondary", device.smartPlug ? "스마트플러그 제어" : "스마트플러그 등록");
     smartPlug.addEventListener("click", () => openSmartPlugDialog(device, !device.smartPlug));

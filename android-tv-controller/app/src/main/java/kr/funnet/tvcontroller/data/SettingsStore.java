@@ -12,6 +12,7 @@ import java.util.UUID;
 
 import kr.funnet.tvcontroller.BuildConfig;
 import kr.funnet.tvcontroller.display.SamsungDisplayCapabilities;
+import kr.funnet.tvcontroller.display.UsbSerialDiagnostics;
 
 public final class SettingsStore {
     private static final String FILE = "tv_controller_settings";
@@ -77,6 +78,7 @@ public final class SettingsStore {
         display.put("model", tvModel());
         display.put("port", usbDevice == null ? "USB 미연결" : usbDevice);
         display.put("inputSources", new JSONArray(SamsungDisplayCapabilities.inputsForModel(tvModel())));
+        display.put("serialDiagnostics", UsbSerialDiagnostics.snapshot());
         return display;
     }
 

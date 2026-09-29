@@ -247,6 +247,7 @@ dialog form { padding: 1.8rem; }
 .tv-command:hover { transform: translateY(-2px); }
 .tv-command:active { transform: translateY(0) scale(.98); }
 .dialog-footer { display: flex; justify-content: flex-end; margin-top: 1.1rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+.usb-diagnostics { max-height: min(58vh, 34rem); overflow: auto; padding: 1rem; border: 1px solid var(--line); border-radius: 8px; background: #f7f8fa; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .78rem; line-height: 1.55; }
 fieldset { margin: 1rem 0 0; padding: 0; border: 0; }
 legend { color: #3a3a3c; font-size: .8rem; font-weight: 680; }
 .day-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: .3rem; margin-top: .5rem; }

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$ApkPath = "dist-android-poc\funnet-tv-controller-0.5.0-poc.apk",
+  [string]$ApkPath = "dist-android-poc\funnet-tv-controller-0.5.1-poc.apk",
   [string]$DeviceSerial
 )
 

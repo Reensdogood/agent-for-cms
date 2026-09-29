@@ -62,7 +62,7 @@ public final class ServerClient {
         health.put("installationId", settings.installationId());
         health.put("localName", settings.localName());
         health.put("machineName", Build.MANUFACTURER + " " + Build.MODEL);
-        health.put("agentVersion", "android-0.5.0-poc");
+        health.put("agentVersion", "android-0.5.1-poc");
         if (!settings.regionId().isBlank()) health.put("provisionedRegionId", settings.regionId());
         health.put("osVersion", "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")");
         health.put("timestamp", java.time.OffsetDateTime.now().toString());

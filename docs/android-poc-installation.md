@@ -32,7 +32,7 @@ PowerShell에서 저장소 루트로 이동한 뒤 실행한다.
 .\scripts\Build-Android-Poc.ps1
 ```
 
-일반 PoC 결과는 `dist-android-poc/funnet-tv-controller-0.5.0-poc.apk`와 `SHA256SUMS.txt`이다. 앱의 최소 지원 버전은 Android 9(API 28)이다. 한글이 포함된 Windows 경로에서 JVM 단위 테스트 실행이 실패하면 영문 경로의 저장소 복사본 또는 Junction에서 빌드한다. APK 패키징 자체는 프로젝트의 `android.overridePathCheck=true` 설정으로 지원한다.
+일반 PoC 결과는 `dist-android-poc/funnet-tv-controller-0.5.1-poc.apk`와 `SHA256SUMS.txt`이다. 앱의 최소 지원 버전은 Android 9(API 28)이다. 한글이 포함된 Windows 경로에서 JVM 단위 테스트 실행이 실패하면 영문 경로의 저장소 복사본 또는 Junction에서 빌드한다. APK 패키징 자체는 프로젝트의 `android.overridePathCheck=true` 설정으로 지원한다.
 
 Funnet 현장 테스트용 고정 배포본은 등록키를 Git에 저장하지 않고 환경 변수로 전달해 빌드한다.
 
@@ -42,7 +42,7 @@ $env:FUNNET_ANDROID_ENROLLMENT_KEY = "관리 서버에서 확인한 Funnet 지�
 Remove-Item Env:FUNNET_ANDROID_ENROLLMENT_KEY
 ```
 
-결과는 `dist-android-funnet-test/funnet-tv-controller-0.5.0-funnet-test.apk`이다. 이 배포본은 서버 `https://agent.funnet.kr`, Funnet 지역, TV Device ID `0`이 고정되어 서버 주소와 등록키를 리모컨으로 입력하지 않는다. 등록키가 APK에 포함되는 현장 시험 전용 파일이므로 외부 공개 저장소나 메신저에 배포하지 않는다.
+결과는 `dist-android-funnet-test/funnet-tv-controller-0.5.1-funnet-test.apk`이다. 이 배포본은 서버 `https://agent.funnet.kr`, Funnet 지역, TV Device ID `0`이 고정되어 서버 주소와 등록키를 리모컨으로 입력하지 않는다. 등록키가 APK에 포함되는 현장 시험 전용 파일이므로 외부 공개 저장소나 메신저에 배포하지 않는다.
 
 ## 3. Android 스틱 설치
 

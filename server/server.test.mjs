@@ -393,7 +393,7 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
   const registration = await fetch(`${base}/api/agent/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Enrollment-Key": region.enrollmentKey },
-    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "Android TV PoC", machineName: "TV-STICK", agentVersion: "android-0.5.0-poc" }),
+    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "Android TV PoC", machineName: "TV-STICK", agentVersion: "android-0.5.1-poc" }),
   });
   assert.equal(registration.status, 201);
   const registered = await registration.json();
@@ -404,10 +404,10 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
     body: JSON.stringify({
       localName: "Android TV PoC",
       machineName: "TV-STICK",
-      agentVersion: "android-0.5.0-poc",
+      agentVersion: "android-0.5.1-poc",
       osVersion: "Android 14 (API 34)",
       platform: "android",
-      display: { enabled: true, vendor: "samsung", model: "LH75QBC", port: "FTDI", inputSources: ["HDMI1", "HDMI2", "HDMI3"] },
+      display: { enabled: true, vendor: "samsung", model: "LH75QBC", port: "FTDI", inputSources: ["HDMI1", "HDMI2", "HDMI3"], serialDiagnostics: { stage: "port_open", selectedDriver: "FtdiSerialDriver", selectedVendorId: "0x0403", selectedProductId: "0x6001" } },
       capabilities: { displayControl: true, ume: false, ivision: false, windowsShutdown: false, agentUpdate: false, supportedInputs: ["HDMI1", "HDMI2", "HDMI3"] },
     }),
   });
@@ -424,6 +424,7 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
   assert.equal(android.platform, "android");
   assert.equal(android.capabilities.windowsShutdown, false);
   assert.deepEqual(android.capabilities.supportedInputs, ["HDMI1", "HDMI2", "HDMI3"]);
+  assert.equal(android.serialDiagnostics.selectedDriver, "FtdiSerialDriver");
 
   for (const path of ["windows/shutdown", "run-ume", "ivision/stop"]) {
     const response = await fetch(`${base}/api/devices/${registered.deviceId}/${path}`, {
@@ -454,7 +455,7 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
     body: JSON.stringify({
       localName: "Android TV PoC",
       machineName: "TV-STICK",
-      agentVersion: "android-0.5.0-poc",
+      agentVersion: "android-0.5.1-poc",
       platform: "android",
       display: { enabled: true, vendor: "samsung", model: "LH75QET", port: "FTDI", inputSources: ["HDMI1", "HDMI2"] },
       capabilities: { displayControl: true, supportedInputs: ["HDMI1", "HDMI2"] },

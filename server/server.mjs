@@ -778,13 +778,19 @@ function deviceHasCapability(deviceId, name, fallback = true) {
 function deviceDto(row) {
   let displayEnabled = false;
   let displayInputs = ["HDMI1", "HDMI2"];
+  let serialDiagnostics = null;
   let platform = "windows";
   let capabilities = { displayControl: false, ume: true, ivision: true, windowsShutdown: true, agentUpdate: true, supportedInputs: displayInputs };
   let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null; let agentElevated = null;
-  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); displayInputs = displayInputsForHealth(health); platform = health.platform === "android" ? "android" : "windows"; capabilities = { ...capabilities, ...(health.capabilities || {}), supportedInputs: displayInputs }; osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
+  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); displayInputs = displayInputsForHealth(health); serialDiagnostics = health.display?.serialDiagnostics || null; platform = health.platform === "android" ? "android" : "windows"; capabilities = { ...capabilities, ...(health.capabilities || {}), supportedInputs: displayInputs }; osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
   const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
-  if (displayCheck?.status === "completed") displayConnection = "정상";
+  if (displayCheck?.status === "completed") {
+    try {
+      const result = JSON.parse(displayCheck.result_json || "{}");
+      displayConnection = result?.result?.connection === "timeout" || result?.success === false ? "연결 실패" : "정상";
+    } catch { displayConnection = "정상"; }
+  }
   else if (displayCheck?.status === "failed") displayConnection = "연결 실패";
   const smartPlug = smartPlugDto(db.prepare("SELECT * FROM smart_plugs WHERE device_id = ?").get(row.id));
   return {
@@ -813,6 +819,7 @@ function deviceDto(row) {
     lastSeenAt: row.last_seen_at,
     displayEnabled,
     displayInputs,
+    serialDiagnostics,
     smartPlug,
     displayConnection,
     displayCheckedAt: displayCheck?.completed_at || null,
