@@ -9,6 +9,22 @@ process.env.NODE_ENV = "test";
 process.env.FUNNET_DATA_DIR = testDir;
 process.env.FUNNET_ADMIN_PASSWORD = "test-admin-password";
 process.env.FUNNET_ENROLLMENT_KEY = "test-enrollment-key-123";
+process.env.ENERCARE_BASE_URL = "https://enercare.test";
+process.env.ENERCARE_DWD_SERVER_ID = "FUNNET";
+process.env.ENERCARE_DWD_GROUP_ID = "FUNNET";
+process.env.ENERCARE_DWD_SERVER_SECRET = "test-dwd-secret";
+process.env.ENERCARE_CON_SERVER_SECRET = "test-callback-secret";
+
+const nativeFetch = global.fetch;
+global.fetch = async (input, options = {}) => {
+  const url = String(input);
+  if (!url.startsWith("https://enercare.test/")) return nativeFetch(input, options);
+  if (url.endsWith("/conn/v1/publish/servertoken")) return Response.json({ dwd_access_token: "test-access-token", dwd_access_token_expiredate: "2099-12-31 23:59:59" });
+  if (url.endsWith("/conn/v1/inquire/device/values")) return Response.json({ results: { conn_status: 1, switch_status: "ON", upload_time: "2026-09-18 10:00:00" } });
+  if (url.endsWith("/conn/v1/control/device/onoff")) return Response.json({ result: "OFF" });
+  if (url.endsWith("/conn/v1/profile/device/list")) return Response.json({ deviceList: [{ device_id: "DAWONDNS-B540_W-test", display_name: "테스트 플러그", conn_status: "1", power: "true" }] });
+  return Response.json({ reason: "not found" }, { status: 404 });
+};
 
 const { server, closeDatabase } = await import("./server.mjs");
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -116,6 +132,69 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   assert.equal(userList.status, 200);
   assert.ok((await userList.json()).users.some((user) => user.username === "dongjak-operator"));
 
+  const operatorLogin = await fetch(`${base}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "dongjak-operator", password: "region-password-123" }),
+  });
+  assert.equal(operatorLogin.status, 200);
+  const operatorLoginBody = await operatorLogin.json();
+  const operatorCookie = operatorLogin.headers.get("set-cookie").split(";")[0];
+  const operatorSystemStatus = await fetch(`${base}/api/commands?limit=20`, { headers: { Cookie: operatorCookie } });
+  assert.equal(operatorSystemStatus.status, 200);
+  const smartPlugSave = await fetch(`${base}/api/devices/${registered.deviceId}/smart-plug`, {
+    method: "PUT",
+    headers: { Cookie: operatorCookie, "Content-Type": "application/json", "X-CSRF-Token": operatorLoginBody.csrfToken },
+    body: JSON.stringify({ enercareDeviceId: "DAWONDNS-B540_W-test", lowGroupId: "GWANAK9", subGroupId: "", displayName: "테스트 플러그" }),
+  });
+  assert.equal(smartPlugSave.status, 200);
+  assert.equal((await smartPlugSave.json()).smartPlug.lowGroupId, "GWANAK9");
+  const smartPlugStatus = await fetch(`${base}/api/devices/${registered.deviceId}/smart-plug/status`, { headers: { Cookie: operatorCookie } });
+  assert.equal(smartPlugStatus.status, 200);
+  assert.deepEqual((await smartPlugStatus.json()).smartPlug.connection, "online");
+  const smartPlugPower = await fetch(`${base}/api/devices/${registered.deviceId}/smart-plug/power`, {
+    method: "POST",
+    headers: { Cookie: operatorCookie, "Content-Type": "application/json", "X-CSRF-Token": operatorLoginBody.csrfToken },
+    body: JSON.stringify({ on: false }),
+  });
+  assert.equal(smartPlugPower.status, 200);
+  assert.equal((await smartPlugPower.json()).smartPlug.power, "off");
+  const smartPlugBulkPower = await fetch(`${base}/api/smart-plugs/bulk/power`, {
+    method: "POST",
+    headers: { Cookie: operatorCookie, "Content-Type": "application/json", "X-CSRF-Token": operatorLoginBody.csrfToken },
+    body: JSON.stringify({ on: true, regionId: regionsBody.regions[0].id, deviceIds: [registered.deviceId] }),
+  });
+  assert.equal(smartPlugBulkPower.status, 200);
+  assert.deepEqual(await smartPlugBulkPower.json(), { targeted: 1, succeeded: 1, failed: 0, failures: [] });
+
+  const regionalUser = await fetch(`${base}/api/users/${createdUser.id}`, {
+    method: "PUT",
+    headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+    body: JSON.stringify({ username: "dongjak-manager", role: "region_manager", regionId: createdRegion.id, active: true }),
+  });
+  assert.equal(regionalUser.status, 200);
+  const regionalLogin = await fetch(`${base}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "dongjak-manager", password: "region-password-123" }),
+  });
+  assert.equal(regionalLogin.status, 200);
+  const regionalCookie = regionalLogin.headers.get("set-cookie").split(";")[0];
+  const regionalSystemStatus = await fetch(`${base}/api/commands?limit=20`, { headers: { Cookie: regionalCookie } });
+  assert.equal(regionalSystemStatus.status, 403);
+  const regionalSmartPlugSave = await fetch(`${base}/api/devices/${registered.deviceId}/smart-plug`, {
+    method: "PUT",
+    headers: { Cookie: regionalCookie, "Content-Type": "application/json", "X-CSRF-Token": (await regionalLogin.clone().json()).csrfToken },
+    body: JSON.stringify({ enercareDeviceId: "DAWONDNS-B540_W-other" }),
+  });
+  assert.equal(regionalSmartPlugSave.status, 403);
+  const regionalSmartPlugBulk = await fetch(`${base}/api/smart-plugs/bulk/power`, {
+    method: "POST",
+    headers: { Cookie: regionalCookie, "Content-Type": "application/json", "X-CSRF-Token": (await regionalLogin.clone().json()).csrfToken },
+    body: JSON.stringify({ on: true, deviceIds: [registered.deviceId] }),
+  });
+  assert.equal(regionalSmartPlugBulk.status, 403);
+
   const rejectedRegistration = await fetch(`${base}/api/agent/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Enrollment-Key": "wrong-enrollment-key" },
@@ -129,6 +208,7 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
     body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "동작 신규 장비", machineName: "NEW-KEY", agentVersion: "1.0.0" }),
   });
   assert.equal(acceptedRegistration.status, 201);
+  const acceptedRegionDevice = await acceptedRegistration.json();
 
   const rotateDefault = await fetch(`${base}/api/regions/${regionsBody.regions[0].id}/rotate-key`, {
     method: "POST",
@@ -182,10 +262,58 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   const packageCommands = await fetch(`${base}/api/agent/commands`, { headers: { Authorization: `Bearer ${registered.deviceToken}` } });
   assert.equal((await packageCommands.json()).commands[0].type, "ume.package.download");
 
+  const agentPackage = Buffer.from("regional-agent-installer");
+  const agentUpload = await fetch(`${base}/api/releases/upload`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken,
+      "X-File-Name": encodeURIComponent("funnet-agent-setup-51.0.0.exe"),
+      "X-Region-Id": regionsBody.regions[0].id,
+    },
+    body: agentPackage,
+  });
+  assert.equal(agentUpload.status, 201);
+  const defaultAgentRelease = (await agentUpload.json()).release;
+  assert.equal(defaultAgentRelease.regionId, regionsBody.regions[0].id);
+
+  const secondRegionAgentUpload = await fetch(`${base}/api/releases/upload`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken,
+      "X-File-Name": encodeURIComponent("funnet-agent-setup-51.0.0.exe"),
+      "X-Region-Id": createdRegion.id,
+    },
+    body: agentPackage,
+  });
+  assert.equal(secondRegionAgentUpload.status, 201);
+
+  const adminAgentDownload = await fetch(`${base}/api/releases/${defaultAgentRelease.id}/download`, { headers: { Cookie: cookie } });
+  assert.equal(adminAgentDownload.status, 200);
+  assert.deepEqual(Buffer.from(await adminAgentDownload.arrayBuffer()), agentPackage);
+
+  const wrongRegionDownload = await fetch(`${base}/api/agent/releases/${defaultAgentRelease.id}/download`, {
+    headers: { Authorization: `Bearer ${acceptedRegionDevice.deviceToken}` },
+  });
+  assert.equal(wrongRegionDownload.status, 403);
+
+  const regionalDistribute = await fetch(`${base}/api/releases/${defaultAgentRelease.id}/distribute`, {
+    method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken }, body: "{}",
+  });
+  assert.equal(regionalDistribute.status, 202);
+  assert.equal((await regionalDistribute.json()).queued, 1);
+
+  const deliveredAgentPackage = await fetch(`${base}/api/agent/commands`, { headers: { Authorization: `Bearer ${registered.deviceToken}` } });
+  const deliveredAgentCommand = (await deliveredAgentPackage.json()).commands[0];
+  assert.equal(deliveredAgentCommand.type, "agent.package.download");
+  const completedAgentPackage = await fetch(`${base}/api/agent/commands/${deliveredAgentCommand.id}/result`, {
+    method: "POST", headers: { Authorization: `Bearer ${registered.deviceToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ success: true }),
+  });
+  assert.equal(completedAgentPackage.status, 200);
+
   const commandHistory = await fetch(`${base}/api/commands?limit=5`, { headers: { Cookie: cookie } });
   assert.equal(commandHistory.status, 200);
   const commandHistoryBody = await commandHistory.json();
-  assert.equal(commandHistoryBody.commands[0].type, "ume.package.download");
+  assert.equal(commandHistoryBody.commands[0].type, "agent.package.download");
   assert.equal(commandHistoryBody.commands[0].deviceName, "관악-001");
 
   const scheduleCreate = await fetch(`${base}/api/schedules`, {
@@ -265,7 +393,7 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
   const registration = await fetch(`${base}/api/agent/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Enrollment-Key": region.enrollmentKey },
-    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "Android TV PoC", machineName: "TV-STICK", agentVersion: "android-0.4.0-poc" }),
+    body: JSON.stringify({ installationId: crypto.randomUUID(), localName: "Android TV PoC", machineName: "TV-STICK", agentVersion: "android-0.5.0-poc" }),
   });
   assert.equal(registration.status, 201);
   const registered = await registration.json();
@@ -276,7 +404,7 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
     body: JSON.stringify({
       localName: "Android TV PoC",
       machineName: "TV-STICK",
-      agentVersion: "android-0.4.0-poc",
+      agentVersion: "android-0.5.0-poc",
       osVersion: "Android 14 (API 34)",
       platform: "android",
       display: { enabled: true, vendor: "samsung", model: "LH75QBC", port: "FTDI", inputSources: ["HDMI1", "HDMI2", "HDMI3"] },
@@ -326,7 +454,7 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
     body: JSON.stringify({
       localName: "Android TV PoC",
       machineName: "TV-STICK",
-      agentVersion: "android-0.4.0-poc",
+      agentVersion: "android-0.5.0-poc",
       platform: "android",
       display: { enabled: true, vendor: "samsung", model: "LH75QET", port: "FTDI", inputSources: ["HDMI1", "HDMI2"] },
       capabilities: { displayControl: true, supportedInputs: ["HDMI1", "HDMI2"] },

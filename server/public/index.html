@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f5f7">
   <title>Funnet 에이전트 통합관리</title>
-  <link rel="stylesheet" href="/styles.css?v=3">
+  <link rel="icon" type="image/png" href="/assets/funnet-agent-icon.png">
+  <link rel="stylesheet" href="/styles.css?v=6">
 </head>
 <body>
   <main>
     <section id="loginView" class="login-shell">
       <form id="loginForm" class="login-card">
-        <div class="brand-mark" aria-hidden="true"><span></span></div>
+        <img class="brand-icon" src="/assets/funnet-agent-icon.png" alt="Funnet Agent">
         <p class="eyebrow">FUNNET · AGENT</p>
         <h1>에이전트 통합관리</h1>
         <p class="muted">등록된 관리자 계정으로 로그인하세요.</p>
@@ -27,11 +28,11 @@
 
     <section id="appView" class="workspace" hidden>
       <aside class="sidebar">
-        <div class="sidebar-brand"><div class="brand-mark small" aria-hidden="true"><span></span></div><div><strong>Funnet</strong><small>에이전트 통합관리</small></div></div>
+        <div class="sidebar-brand"><img class="brand-icon small" src="/assets/funnet-agent-icon.png" alt="Funnet Agent"><div><strong>Funnet</strong><small>에이전트 통합관리</small></div></div>
         <nav aria-label="주 메뉴">
           <button class="nav-item active" data-view="dashboard"><span>⌂</span>대시보드</button>
           <button class="nav-item" data-view="devices" data-roles="admin,operator,region_manager,system_manager"><span>▣</span>장비 관리</button>
-          <button class="nav-item" data-view="system" data-roles="admin,system_manager"><span>⚠</span>시스템 상태</button>
+          <button class="nav-item" data-view="system" data-roles="admin,operator,system_manager"><span>⚠</span>시스템 상태</button>
           <button class="nav-item" data-view="schedules" data-roles="admin,operator,region_manager,system_manager"><span>◷</span>스케줄 실행</button>
           <button class="nav-item" data-view="releases" data-roles="admin,operator,system_manager"><span>⇩</span>업데이트 배포</button>
           <button class="nav-item" data-view="integrations" data-roles="admin,operator,system_manager"><span>↗</span>운영 관리 페이지</button>
@@ -61,21 +62,12 @@
             <article class="panel"><h3>지역</h3><div id="regionBreakdown" class="metric-list"></div></article>
           </section>
           <section class="panel"><div class="panel-head"><div><h3>확인이 필요한 장비</h3><p>오프라인 또는 승인 대기 장비를 우선 표시합니다.</p></div><button class="secondary jump-button" data-jump="devices">전체 장비 보기</button></div><div id="attentionList" class="attention-list"></div></section>
-          <section class="panel setup-panel">
-            <div class="panel-head">
-              <div><h3>Agent 설치 정보</h3><p>지역별 등록 키를 추가해서 새 현장 PC 등록에 사용합니다.</p></div>
-              <button id="addRegionButton" class="secondary">지역 키 추가</button>
-            </div>
-            <div class="setup-grid">
-              <label>서버 주소<span class="copy-field"><input id="agentServerUrl" readonly><button class="secondary" data-copy="agentServerUrl" type="button">복사</button></span></label>
-            </div>
-            <div id="regionKeyList" class="region-key-list"></div>
-          </section>
         </section>
 
         <section class="page" data-page="devices" hidden>
-          <div class="page-actions"><div><h2>장비 관리</h2><p>장비 승인, 이름 수정, 즉시 상태 확인을 관리합니다.</p></div><div class="page-filters"><select id="deviceRegionFilter" class="region-filter" aria-label="장비 지역 필터"></select><input id="searchInput" type="search" placeholder="장비명 또는 ID 검색" aria-label="장비 검색"></div></div>
-          <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>상태</th><th>지역</th><th>장비명</th><th>Device ID</th><th>OS</th><th>Agent</th><th>UME</th><th>i-vision</th><th>TV 연결</th><th>Agent 마지막 응답</th><th>관리</th></tr></thead><tbody id="deviceRows"></tbody></table></div><p id="emptyState" class="empty">등록된 장비가 없습니다.</p></section>
+          <div class="page-actions"><div><h2>장비 관리</h2><p>장비 승인, 이름 수정, 즉시 상태 확인을 관리합니다.</p></div><div class="page-filters"><select id="devicePageSize" aria-label="페이지 장비 수"><option value="10">10개</option><option value="50">50개</option><option value="100">100개</option></select><select id="deviceRegionFilter" class="region-filter" aria-label="장비 지역 필터"></select><input id="searchInput" type="search" placeholder="장비명 또는 ID 검색" aria-label="장비 검색"></div></div>
+          <section class="panel device-bulk-panel"><div><p class="eyebrow">SELECTED DEVICES</p><h3>선택 장비 제어</h3><p>지역 필터에 표시된 장비 중 체크한 온라인 장비에 명령을 보냅니다.</p></div><div class="device-bulk-actions"><button class="secondary" data-device-bulk="display-status">상태 확인</button><button class="secondary" data-device-bulk="display-on">TV ON</button><button class="secondary" data-device-bulk="display-off">TV OFF</button><button class="secondary" data-device-bulk="hdmi1">HDMI1</button><button class="secondary" data-device-bulk="hdmi2">HDMI2</button><button class="secondary" data-device-bulk="hdmi3">HDMI3</button><button class="secondary" data-device-bulk="ume">UME 실행</button><button class="secondary" data-device-bulk="ivision-stop">I-Vision 종료</button><button class="secondary" data-device-bulk="ivision-restart">I-Vision 재실행</button><button class="secondary" data-device-bulk="smart-plug-on">스마트플러그 ON</button><button class="secondary" data-device-bulk="smart-plug-off">스마트플러그 OFF</button><button class="secondary danger" data-device-bulk="windows-shutdown">Windows 종료</button></div></section>
+          <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th><input id="selectAllDevices" type="checkbox" aria-label="현재 목록 전체 선택"></th><th><button class="table-sort" data-device-sort="status">상태</button></th><th><button class="table-sort" data-device-sort="regionName">지역</button></th><th><button class="table-sort" data-device-sort="displayName">장비명</button></th><th>Device ID</th><th>OS</th><th><button class="table-sort" data-device-sort="agentVersion">Agent</button></th><th><button class="table-sort" data-device-sort="ume">UME</button></th><th><button class="table-sort" data-device-sort="ivisionRunning">i-vision</button></th><th>TV 연결</th><th>스마트플러그</th><th>Agent 마지막 응답</th><th>관리</th></tr></thead><tbody id="deviceRows"></tbody></table></div><p id="emptyState" class="empty">등록된 장비가 없습니다.</p><nav id="devicePagination" class="pagination" aria-label="장비 페이지"></nav></section>
         </section>
 
         <section class="page" data-page="system" hidden>
@@ -86,21 +78,31 @@
 
         <section class="page" data-page="schedules" hidden>
           <div class="page-actions schedule-page-actions"><div><h2>화상회의 스케줄 실행</h2><p>대한민국 시간 기준으로 승인된 장비에 화상회의 실행 명령을 보냅니다.</p></div><div class="page-filters"><select id="scheduleRegionFilter" class="region-filter" aria-label="스케줄 지역 필터"></select><button id="addScheduleButton">스케줄 추가</button></div></div>
-          <section class="panel bulk-control-panel"><div class="bulk-control-group"><div><p class="eyebrow">TV CONTROL</p><h3>전체 장비 TV 제어</h3><p>현재 지역 필터에 해당하는 온라인 장비에 전송합니다.</p></div><div class="bulk-display-actions"><button class="secondary" data-bulk-display="power" data-value="on">전원 ON</button><button class="secondary" data-bulk-display="power" data-value="off">전원 OFF</button><button class="secondary" data-bulk-display="input" data-value="HDMI1">HDMI1</button><button class="secondary" data-bulk-display="input" data-value="HDMI2">HDMI2</button><button class="secondary" data-bulk-display="input" data-value="HDMI3">HDMI3</button></div></div><div class="bulk-control-group"><div><p class="eyebrow">I-VISION CONTROL</p><h3>전체 장비 I-Vision 제어</h3><p>현재 지역 필터에 해당하는 온라인 장비에 전송합니다.</p></div><div class="bulk-display-actions"><button class="secondary" data-bulk-ivision="stop">I-Vision 종료</button><button class="secondary" data-bulk-ivision="restart">I-Vision 재실행</button></div></div><div class="bulk-control-group windows-control-group"><div><p class="eyebrow">WINDOWS CONTROL</p><h3>전체 장비 Windows 제어</h3><p>현재 지역 필터에 해당하는 온라인 장비를 종료합니다.</p></div><div class="bulk-display-actions"><button class="secondary danger" data-bulk-windows="shutdown">Windows 종료</button></div></div></section>
+          <section class="panel bulk-control-panel"><div class="bulk-control-group"><div><p class="eyebrow">TV CONTROL</p><h3>전체 장비 TV 제어</h3><p>현재 지역 필터에 해당하는 온라인 장비에 전송합니다.</p></div><div class="bulk-display-actions"><button class="secondary" data-bulk-display="power" data-value="on">전원 ON</button><button class="secondary" data-bulk-display="power" data-value="off">전원 OFF</button><button class="secondary" data-bulk-display="input" data-value="HDMI1">HDMI1</button><button class="secondary" data-bulk-display="input" data-value="HDMI2">HDMI2</button><button class="secondary" data-bulk-display="input" data-value="HDMI3">HDMI3</button></div></div><div class="bulk-control-group"><div><p class="eyebrow">I-VISION CONTROL</p><h3>전체 장비 I-Vision 제어</h3><p>현재 지역 필터에 해당하는 온라인 장비에 전송합니다.</p></div><div class="bulk-display-actions"><button class="secondary" data-bulk-ivision="stop">I-Vision 종료</button><button class="secondary" data-bulk-ivision="restart">I-Vision 재실행</button></div></div><div class="bulk-control-group windows-control-group"><div><p class="eyebrow">WINDOWS CONTROL</p><h3>전체 장비 Windows 제어</h3><p>현재 지역 필터에 해당하는 등록된 Online 스마트플러그를 제어하거나 온라인 장비를 종료합니다.</p></div><div class="bulk-display-actions"><button class="secondary" data-bulk-smart-plug="on">스마트플러그 ON</button><button class="secondary" data-bulk-smart-plug="off">스마트플러그 OFF</button><button class="secondary danger" data-bulk-windows="shutdown">Windows 종료</button></div></div></section>
           <div id="scheduleList" class="card-grid"></div>
         </section>
 
         <section class="page" data-page="releases" hidden>
           <div class="page-actions"><div><h2>업데이트 배포</h2><p>UME와 Agent 업데이트 파일을 등록하고 승인된 장비에 배포합니다.</p></div></div>
           <div class="segment"><button class="active" data-release-filter="all">전체</button><button data-release-filter="ume">UME 배포</button><button data-release-filter="agent">Agent 업데이트</button></div>
-          <section class="panel upload-panel"><div><h3>새 버전 등록</h3><p><code>UME-release-버전.exe</code> 또는 <code>funnet-gwanak-agent-setup-버전.exe</code> 파일을 선택하세요.</p></div><label class="file-button">파일 선택<input id="releaseFile" type="file" accept=".exe"></label><span id="selectedReleaseFile" class="selected-file">선택된 파일 없음</span><button id="uploadReleaseButton" disabled>업로드</button><progress id="uploadProgress" max="100" value="0" hidden></progress></section>
+          <section class="panel upload-panel"><div><h3>새 버전 등록</h3><p><code>UME-release-버전.exe</code> 또는 지역별 <code>funnet-agent-setup-버전.exe</code> 파일을 선택하세요.</p></div><label>Agent 대상 지역<select id="releaseRegion" aria-label="Agent 설치 파일 대상 지역"></select></label><label class="file-button">파일 선택<input id="releaseFile" type="file" accept=".exe"></label><span id="selectedReleaseFile" class="selected-file">선택된 파일 없음</span><button id="uploadReleaseButton" disabled>업로드</button><progress id="uploadProgress" max="100" value="0" hidden></progress></section>
           <div id="releaseList" class="release-list"></div>
         </section>
 
         <section class="page" data-page="integrations" hidden>
-          <div class="page-actions"><div><h2>운영 관리 페이지</h2><p>모든 운영 페이지를 한 화면 안에서 엽니다. i-vision과 Enercare는 현재 창에서 열기를 사용하세요.</p></div></div>
-          <div class="segment" role="tablist"><button class="active" data-tool="ivision" role="tab">i-vision</button><button data-tool="ume-manager" role="tab">UME 관리자</button><button data-tool="enercare" role="tab">Enercare</button></div>
-          <section class="panel integration-panel"><div class="integration-head"><div><h3 id="integrationTitle">i-vision Cloud</h3><p id="integrationUrl">cloud.myivision.com</p></div><a id="integrationFallback" class="secondary button-link" href="https://cloud.myivision.com/">현재 창에서 열기</a></div><iframe id="integrationFrame" title="외부 관리 화면" src="https://cloud.myivision.com/" referrerpolicy="no-referrer"></iframe><img id="integrationPreview" class="integration-preview" src="/assets/enercare-preview.png" alt="Enercare 디바이스 목록 화면 미리보기" hidden></section>
+          <div class="page-actions"><div><h2>운영 관리 페이지</h2><p>i-vision, UME 관리자와 Agent 설치 정보를 한 곳에서 관리합니다.</p></div></div>
+          <div class="segment" role="tablist" aria-label="운영 관리 도구"><button class="active" data-tool="ivision" role="tab" aria-selected="true">i-vision</button><button data-tool="ume-manager" role="tab" aria-selected="false">UME 관리자</button><button data-tool="agent-install" role="tab" aria-selected="false">Agent 설치 정보</button></div>
+          <section id="integrationPanel" class="panel integration-panel"><div class="integration-head"><div><h3 id="integrationTitle">i-vision Cloud</h3><p id="integrationUrl">cloud.myivision.com</p></div><a id="integrationFallback" class="secondary button-link" href="https://cloud.myivision.com/">현재 창에서 열기</a></div><iframe id="integrationFrame" title="외부 관리 화면" src="https://cloud.myivision.com/" referrerpolicy="no-referrer"></iframe></section>
+          <section id="agentInstallPanel" class="panel setup-panel" hidden>
+            <div class="panel-head">
+              <div><h3>Agent 설치 정보</h3><p>새 현장 PC 등록에 사용할 서버 주소와 지역별 등록 키를 관리합니다.</p></div>
+              <button id="addRegionButton" class="secondary">지역 키 추가</button>
+            </div>
+            <div class="setup-grid">
+              <label>서버 주소<span class="copy-field"><input id="agentServerUrl" readonly><button class="secondary" data-copy="agentServerUrl" type="button">복사</button></span></label>
+            </div>
+            <div id="regionKeyList" class="region-key-list"></div>
+          </section>
         </section>
 
         <section class="page" data-page="users" hidden>
@@ -120,6 +122,6 @@
   <dialog id="scheduleDialog"><form id="scheduleForm" method="dialog"><div class="dialog-copy"><p class="eyebrow">SCHEDULE</p><h2>화상회의 스케줄 실행</h2><p>선택한 지역의 승인 장비에서 UME를 전체화면으로 엽니다.</p></div><input id="scheduleId" type="hidden"><label>스케줄명<input id="scheduleName" maxlength="100" placeholder="예: 오전 화상회의" required></label><label>실행 시간<input id="scheduleTime" type="time" required></label><fieldset><legend>대상 지역</legend><div id="scheduleRegions" class="day-picker region-picker"></div><small class="field-hint">여러 지역을 선택할 수 있습니다. 선택하지 않으면 저장할 수 없습니다.</small></fieldset><fieldset><legend>실행 요일</legend><div class="day-picker"><label><input type="checkbox" name="day" value="1">월</label><label><input type="checkbox" name="day" value="2">화</label><label><input type="checkbox" name="day" value="3">수</label><label><input type="checkbox" name="day" value="4">목</label><label><input type="checkbox" name="day" value="5">금</label><label><input type="checkbox" name="day" value="6">토</label><label><input type="checkbox" name="day" value="0">일</label></div></fieldset><label class="check"><input id="scheduleEnabled" type="checkbox" checked> 스케줄 사용</label><div class="dialog-actions"><button value="cancel" class="secondary" formnovalidate>취소</button><button value="default">저장</button></div></form></dialog>
 
   <dialog id="confirmDialog"><form method="dialog"><div class="dialog-copy"><p class="eyebrow">CONFIRM</p><h2 id="confirmTitle">작업 확인</h2><p id="confirmMessage"></p></div><div class="dialog-actions"><button value="cancel" class="secondary">취소</button><button id="confirmAccept" value="default">계속</button></div></form></dialog>
-  <script type="module" src="/app.js?v=3"></script>
+  <script type="module" src="/app.js?v=8"></script>
 </body>
 </html>

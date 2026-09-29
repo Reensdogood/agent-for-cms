@@ -4,25 +4,29 @@ using System.Diagnostics;
 using Funnet.Gwanak.Agent.Display.Serial;
 using Funnet.Gwanak.Agent.Display.SamsungMdc;
 using Funnet.Gwanak.Agent.Display;
+using Funnet.Gwanak.Agent.Infrastructure;
 
 internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthCollector healthCollector, UmeWindowController umeController, AgentSettings settings)
 {
     private readonly PackageDeploymentService _packageDeployment = new(apiClient);
     private readonly UmeWindowController _umeController = umeController;
     private readonly AgentSettings _settings = settings;
+    private DateTimeOffset _nextIvisionTaskCheck = DateTimeOffset.MinValue;
 
     public async Task<int> ExecutePendingAsync(CancellationToken cancellationToken)
     {
+        EnsureIvisionLauncherTaskIfInstalled();
         var completed = 0;
         foreach (var command in await apiClient.GetCommandsAsync(cancellationToken))
         {
+            RuntimeTrace.Write("command.start", new { command.Id, command.Type });
             try
             {
                 object result = command.Type switch
                 {
                     "health.probe" => await ProbeAsync(cancellationToken),
-                    "ume.activate" => await _umeController.ActivateAsync(cancellationToken),
-                    "ume.hide" => _umeController.HideAndRestoreDid(),
+                    "ume.activate" => await ActivateUmeAsync(cancellationToken),
+                    "ume.hide" => _umeController.CloseAndRestoreIvision(),
                     "ivision.stop" => StopIvision(),
                     "ivision.restart" => RestartIvision(),
                     "windows.shutdown" => ScheduleWindowsShutdown(),
@@ -32,13 +36,31 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
                     "display.input" => await DisplayInputAsync(command, cancellationToken),
                     "display.volume" => await DisplayVolumeAsync(command, cancellationToken),
                     "display.status" => await DisplayStatusAsync(cancellationToken),
+                    "remote.screen.capture" => RemoteControlService.CapturePrimaryScreen(),
+                    "remote.input.key" => RemoteControlService.SendKey(command.Payload.GetProperty("key").GetString() ?? ""),
+                    "remote.input.click" => RemoteControlService.Click(command.Payload.GetProperty("x").GetInt32(), command.Payload.GetProperty("y").GetInt32()),
                     _ => throw new InvalidOperationException("지원하지 않는 명령입니다."),
                 };
+                // 자동 업데이트는 현재 Agent의 관리자 토큰을 그대로 물려받아
+                // UAC 확인 없이 설치기를 실행한다. 이 조건을 먼저 검증해야
+                // 서버에 성공으로 기록된 뒤 업데이트가 막히는 일이 없다.
+                if (result is PackageDeploymentService.AgentPackage)
+                    PackageDeploymentService.EnsureAutomaticUpdateCanRun();
                 await apiClient.CompleteCommandAsync(command.Id, true, result, cancellationToken);
+                RuntimeTrace.Write("command.success", new { command.Id, command.Type });
                 completed++;
+                // 설치기가 기존 Agent를 종료하기 전에 서버에 완료를 확정한다.
+                // 완료 응답 이후에만 설치기를 시작해야 delivered 명령 재전달로
+                // 업데이트 설치기가 중복 실행되지 않는다.
+                if (result is PackageDeploymentService.AgentPackage agentPackage)
+                {
+                    PackageDeploymentService.StartAgentUpdate(agentPackage);
+                    return completed;
+                }
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
+                RuntimeTrace.Write("command.failure", new { command.Id, command.Type }, exception);
                 await apiClient.CompleteCommandAsync(command.Id, false, new { error = exception.Message }, cancellationToken);
             }
         }
@@ -50,16 +72,15 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     private async Task<object> DisplayInputAsync(AgentApiClient.AgentCommand command, CancellationToken ct)
     {
         await using var client = CreateDisplayClient();
-        var input = command.Payload.GetProperty("input").GetString() switch
-        {
-            "HDMI1" => SamsungInput.Hdmi1,
-            "HDMI2" => SamsungInput.Hdmi2,
-            _ => throw new InvalidOperationException("input은 HDMI1 또는 HDMI2여야 합니다.")
-        };
+        var requestedInput = command.Payload.GetProperty("input").GetString();
+        if (!SamsungDisplayCapabilities.TryParseInput(requestedInput, out var input))
+            throw new InvalidOperationException("input은 HDMI1, HDMI2 또는 HDMI3여야 합니다.");
+        if (!SamsungDisplayCapabilities.SupportsInput(_settings.Display.Model, input))
+            throw new InvalidOperationException($"{_settings.Display.Model} 모델은 {SamsungDisplayCapabilities.NameOf(input)} 입력을 지원하도록 설정되어 있지 않습니다.");
         try
         {
             await client.SetInputAsync(input, ct);
-            return new { input = input.ToString(), verification = "confirmed" };
+            return new { input = SamsungDisplayCapabilities.NameOf(input), verification = "confirmed" };
         }
         catch (Exception error) when (error is DisplayControlException)
         {
@@ -70,7 +91,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
             {
                 var actual = await client.GetInputAsync(ct);
                 if (actual == input)
-                    return new { input = input.ToString(), verification = "confirmed_after_delayed_response" };
+                    return new { input = SamsungDisplayCapabilities.NameOf(input), verification = "confirmed_after_delayed_response" };
             }
             catch (Exception retryError) when (retryError is DisplayControlException)
             {
@@ -98,7 +119,7 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
         return new
         {
             power = power.Value is SamsungPowerState p ? p == SamsungPowerState.On ? "on" : "off" : null,
-            input = input.Value is SamsungInput i ? i == SamsungInput.Hdmi1 ? "HDMI1" : "HDMI2" : null,
+            input = input.Value is SamsungInput i ? SamsungDisplayCapabilities.NameOf(i) : null,
             volume = volume.Value,
             connection = connected ? (standby ? "standby" : "connected") : "timeout",
             partial = errors.Count > 0,
@@ -123,6 +144,12 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
     }
     private SamsungMdcClient CreateDisplayClient()
     { if (!_settings.Display.Enabled || string.IsNullOrWhiteSpace(_settings.Display.Port)) throw new DisplayControlException(DisplayErrorCode.PortNotFound, "Samsung display is not enabled or port is not configured."); var transport = new WindowsSerialTransportFactory().Create(SerialPortConfiguration.ForSamsungMdc(_settings.Display.Port)); return new SamsungMdcClient(transport); }
+
+    private async Task<object> ActivateUmeAsync(CancellationToken cancellationToken)
+    {
+        if (GetIvisionProcesses().Length > 0) StopIvision();
+        return await _umeController.ActivateAsync(cancellationToken);
+    }
 
     private static object StopIvision()
     {
@@ -161,22 +188,31 @@ internal sealed class AgentCommandExecutor(AgentApiClient apiClient, HealthColle
 
     private static object RestartIvision()
     {
-        string? path = null;
         var processes = GetIvisionProcesses();
-        try { foreach (var process in processes) { try { if (process.ProcessName.Equals("i-Vision.Player", StringComparison.OrdinalIgnoreCase)) path ??= process.MainModule?.FileName; } catch { } } }
-        finally { foreach (var process in processes) process.Dispose(); }
+        foreach (var process in processes) process.Dispose();
         StopIvision();
-        // 관리자 권한 프로세스는 MainModule 경로 조회가 거부될 수 있다.
-        // 진단에서 확인된 기본 설치 경로를 안전한 대체 경로로 사용한다.
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            var defaultPath = @"C:\i-Vision Player\i-Vision.Player.exe";
-            if (File.Exists(defaultPath)) path = defaultPath;
-        }
-        if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("i-vision 실행 파일 경로를 찾을 수 없습니다.");
+        if (!File.Exists(PrivilegedTaskBroker.IvisionUpdaterPath)) throw new InvalidOperationException("iVisionUpdater.exe를 찾을 수 없습니다.");
         System.Threading.Thread.Sleep(1000);
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
-        return new { restarted = true, process = "i-Vision.Player" };
+        // 이미 설치 시 등록된 관리자 권한 작업이 있으면 Agent 자신의 토큰과
+        // 무관하게 작업을 실행할 수 있어야 한다. 기존 코드는 먼저
+        // IsElevated()를 검사해 일반 토큰 Agent가 정상 등록된 작업까지
+        // 실행하지 못하게 막고 있었다.
+        if (!PrivilegedTaskBroker.EnsureIvisionLauncherTask(out var taskError))
+            throw new InvalidOperationException($"i-vision 관리자 권한 실행 작업을 등록하지 못했습니다. {taskError}");
+        if (!PrivilegedTaskBroker.RunIvisionLauncher())
+            throw new InvalidOperationException("i-vision 관리자 권한 실행 예약 작업을 시작하지 못했습니다.");
+        return new { restarted = true, processes = new[] { "i-Vision.PlayAgent", "i-Vision.Player" }, elevation = "privileged-task-broker" };
+    }
+
+    private void EnsureIvisionLauncherTaskIfInstalled()
+    {
+        if (DateTimeOffset.UtcNow < _nextIvisionTaskCheck) return;
+        _nextIvisionTaskCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+        if (!File.Exists(PrivilegedTaskBroker.IvisionUpdaterPath) || PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.IvisionLauncherTask)) return;
+        if (!PrivilegedTaskBroker.EnsureIvisionLauncherTask(out var error))
+            RuntimeTrace.Write("ivision.launcher-task.ensure.failed", new { error });
+        else
+            RuntimeTrace.Write("ivision.launcher-task.ensure.succeeded");
     }
 
     private static object ScheduleWindowsShutdown()

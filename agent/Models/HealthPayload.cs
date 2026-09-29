@@ -18,7 +18,12 @@ internal sealed record HealthPayload(
     UmeInstallation? Ume,
     IReadOnlyList<UmeInstallation> InstalledUmeVersions)
 {
-    public DisplayHealth Display { get; init; } = new(false, null, null, null);
+    public DisplayHealth Display { get; init; } = new(false, null, null, null, Array.Empty<string>());
+    public string? OsEdition { get; init; }
+    public string? OsDisplayVersion { get; init; }
+    public int? OsBuild { get; init; }
+    public int? OsRevision { get; init; }
+    public bool? AgentElevated { get; init; }
 }
 
-internal sealed record DisplayHealth(bool Enabled, string? Vendor, string? Model, string? Port);
+internal sealed record DisplayHealth(bool Enabled, string? Vendor, string? Model, string? Port, IReadOnlyList<string> InputSources);

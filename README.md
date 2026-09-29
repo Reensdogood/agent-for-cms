@@ -9,8 +9,8 @@ Android TV Stick/Box용 USB-to-RS232 Samsung TV 제어 PoC가 `android-tv-contro
 - 관리자 로그인 화면
 - 사용자 추가, 수정, 삭제, 계정 사용/중지
 - 전체 시스템, 운영, 지역 관리자 권한 관리
-- Apple 스타일의 장비 현황, 장비 관리, 스케줄, UME 배포, 외부 관리 UI
-- Agent 이름: `funnet-gwanak-agent`
+- Apple 스타일의 장비 현황, 장비 관리, 스마트플러그, 스케줄, UME 배포, 외부 관리 UI
+- 사용자 표시 Agent 이름: `funnet-agent` (실행 파일/프로세스 식별자 `funnet-gwanak-agent`는 기존 설치·자동업데이트 호환을 위해 유지)
 - Windows Tray Agent 설치 프로그램
 - 장비 자동 등록, 승인 대기, 장비명 수정
 - 30초 Heartbeat와 관리자 즉시 상태 확인
@@ -20,11 +20,23 @@ Android TV Stick/Box용 USB-to-RS232 Samsung TV 제어 PoC가 `android-tv-contro
 - UME 창 전체화면/최상단 전환 명령
 - UME 콜 수신 시 녹색 참가/수락 버튼 화면 감지와 자동 클릭 시도
 - UME 자동 로그인이 풀렸을 때 작은 로그인 창의 파란 로그인 버튼 자동 클릭 시도
+
+## 2026-09-15 점검 기준
+
+- UME 실행/종료는 Agent 명령 `ume.activate`/`ume.hide`로 분리한다. UME 프로세스 내부의 제목 없는 Chrome 컨테이너나 카메라 모니터 창을 회의창으로 단정하지 않는다.
+- UME 창을 강제 종료·숨김·최상위 고정하지 않는다. 내부 보조창은 포커스만 양보하고 백그라운드로 보낸다. 이 원칙을 어기면 검은 공백창, 입력 잠김, 메모리 급증이 재현될 수 있다.
+- 자동 응답은 제목이 `회의 초대`인 UME 초대 팝업의 녹색 참가 버튼에서만 수행한다. 더보기·카메라·마이크 메뉴나 UME 메인 창은 자동 클릭하지 않는다. 회의창 감지 시에만 전체 화면으로 전환하고, `topmost`는 사용하지 않는다.
+- UME 창 분류가 의심될 때는 `runtime-windows10.jsonl` 또는 `runtime-windows11.jsonl`의 `ume.window.inventory`, `ume.invitation.accept.clicked`, `ume.meeting.fullscreen.applied` 이벤트로 제목·클래스·좌표·보조창 분류를 먼저 확인한다.
+- 실제 화상회의 팝업(더보기, 카메라/마이크 선택)은 회의 본창의 자식 팝업으로 취급하고, 감시 루프가 본창을 다시 앞으로 올려 팝업을 가리지 않도록 한다.
+- Agent 업데이트 중 기존 UME가 실행 중이면 watcher의 초기 상태를 현재 회의창 상태로 시드하여 종료 오판과 중복 알림을 막는다.
+- I-Vision 권한 상승과 UME 버전 차이는 다음 Phase에서 별도 조사한다. 이번 변경에서 운영 배포하지 않는다.
+- 장비 관리 화면은 온라인 우선 정렬, 지역/상태/장비명/Agent/UME/i-vision 정렬, 10/50/100개 페이지 선택을 지원한다.
 - UME 숨김 처리와 i-vision 전면 복귀 시도
 - 서버에 UME 설치파일 업로드
 - 승인된 장비 전체로 UME 설치파일 다운로드 명령 전송
 - Agent의 UME 설치파일 크기, SHA-256, Windows 전자서명 검증
 - 최근 명령 이력 조회 API
+- EnerCare 스마트플러그 장치 목록 조회, 실시간 상태 캐시, Online 상태 전원 ON/OFF 제어
 
 ## 운영 정책
 
@@ -70,15 +82,19 @@ dotnet run --project .\agent\Funnet.Gwanak.Agent.csproj -c Release -- --once
 ## 배포 패키지 빌드
 
 ```powershell
-.\scripts\Build-Release.ps1 -Version 1.0.0 -OutputDirectory dist-1.0.0
+.\scripts\Build-Release.ps1 -Version 1.0.0 -RegionName '관악' -EnrollmentKey '<해당 지역의 16자 이상 등록 키>' -OutputDirectory dist-1.0.0
 ```
 
 생성물은 지정한 배포 폴더에 만들어집니다.
 
-- `funnet-gwanak-agent-setup-1.0.0.exe`: Windows Agent 설치 프로그램
+- `funnet-agent-setup-1.0.0.exe`: Windows Agent 설치 프로그램
 - `funnet-gwanak-server-1.0.0.zip`: 서버 배포 패키지
 - `SHA256SUMS.txt`: 배포 파일 해시
 - `agent-settings.example.json`: Agent 설정 예시
+
+Agent 설치 파일은 지정한 지역의 서버 주소와 등록 키를 내부에 포함한다. 일반 설치·자동 업데이트 화면에는 서버 주소나 등록 키를 표시하지 않으며, Agent가 관리자 권한 예약 작업으로 시작된 것을 확인하면 설치 창을 자동으로 닫는다. 서버 주소 변경은 트레이 아이콘의 **설정**에서만 가능하다.
+
+설치 파일은 기존 일반 권한 Agent의 자동 업데이트 호환을 위해 실행 파일 매니페스트를 `asInvoker`로 유지한다. 수동 실행 시 설치기가 즉시 Windows UAC `runas`로 자신을 다시 시작하므로, 파일 탐색기에 방패 아이콘이 없더라도 승인 후 설치·예약 작업 등록은 관리자 권한으로 수행된다.
 
 현재 설치 프로그램은 코드 서명 인증서가 없는 상태에서는 unsigned입니다. 여러 PC에 운영 배포하기 전 조직 코드 서명 인증서로 서명해야 SmartScreen과 보안 솔루션 차단 가능성을 줄일 수 있습니다.
 
@@ -103,7 +119,14 @@ FUNNET_DOMAIN=control.example.com
 FUNNET_ADMIN_USER=admin
 FUNNET_ADMIN_PASSWORD=replace-with-a-long-random-password
 FUNNET_ENROLLMENT_KEY=replace-with-a-separate-long-random-enrollment-key
+ENERCARE_BASE_URL=https://dwcon.enercare.co.kr:18443
+ENERCARE_DWD_SERVER_ID=FUNNET
+ENERCARE_DWD_GROUP_ID=FUNNET
+ENERCARE_DWD_SERVER_SECRET=EnerCare에서 발급한 다원 서버 Secret
+ENERCARE_CON_SERVER_SECRET=EnerCare 콜백용으로 생성한 강한 Secret
 ```
+
+`ENERCARE_DWD_SERVER_SECRET`와 `ENERCARE_CON_SERVER_SECRET`는 서버 `.env`에만 저장하며 브라우저나 Agent에 전달하지 않습니다. EnerCare가 실시간 콜백을 사용할 경우 `https://agent.funnet.kr/conn/v1/publish/servertoken` 및 `https://agent.funnet.kr/conn/v1/transfer/device/realtimedata`를 사용합니다. 콜백 Secret은 서버 토큰 발급 시 상수 시간 비교로 검증하고, 발급 토큰은 `9999-12-31 23:59:59`까지 유효하게 처리합니다.
 
 Docker와 Docker Compose가 설치된 서버에서 실행합니다.
 

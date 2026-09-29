@@ -8,8 +8,8 @@
     <AssemblyName>funnet-gwanak-agent</AssemblyName>
     <RootNamespace>Funnet.Gwanak.Agent</RootNamespace>
     <Version>1.0.0</Version>
-    <Product>Funnet Gwanak Agent</Product>
-    <Company>Funnet</Company>
+    <Product>관악 Agent</Product>
+    <Company>&#x200B;</Company>
     <Description>관악 장비 상태 및 UME 제어 Agent</Description>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

@@ -1,0 +1,10 @@
+<Project>
+  <!-- Custom assembly metadata is not rendered in Windows file properties. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="Developer" Value="김린" />
+    <AssemblyMetadata Include="DeveloperEmail" Value="doltongs@naver.com" />
+    <AssemblyMetadata Include="Publisher" Value="김린" />
+    <AssemblyMetadata Include="CopyrightOwner" Value="김린" />
+    <AssemblyMetadata Include="CopyrightYear" Value="2026" />
+  </ItemGroup>
+</Project>

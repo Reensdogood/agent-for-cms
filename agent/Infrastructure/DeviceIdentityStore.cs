@@ -23,8 +23,21 @@ internal sealed class DeviceIdentityStore
         Directory.CreateDirectory(_directory);
         if (File.Exists(IdentityPath))
         {
-            var value = JsonSerializer.Deserialize<DeviceIdentity>(File.ReadAllText(IdentityPath), JsonDefaults.Standard);
-            if (value is not null && Guid.TryParse(value.InstallationId, out _)) return value;
+            try
+            {
+                var value = JsonSerializer.Deserialize<DeviceIdentity>(File.ReadAllText(IdentityPath), JsonDefaults.Standard);
+                if (value is not null && Guid.TryParse(value.InstallationId, out _)) return value;
+            }
+            catch (JsonException error)
+            {
+                // 이전 설치가 비정상 종료되어 빈 파일/NUL 문자로 채워진 파일이
+                // 남아도 트레이 Agent 전체가 시작 실패하지 않게 한다. 원본은
+                // 삭제하지 않고 진단을 위해 보존한 뒤 새 식별 파일을 만든다.
+                var backup = IdentityPath + $".corrupt-{DateTimeOffset.Now:yyyyMMddHHmmssfff}";
+                try { File.Move(IdentityPath, backup, false); }
+                catch { /* 백업 실패 시에도 아래 새 파일 저장을 시도한다. */ }
+                RuntimeTrace.Write("identity.corrupt.recovered", new { backup }, error);
+            }
         }
 
         var identity = new DeviceIdentity();

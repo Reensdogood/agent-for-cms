@@ -1,8 +1,11 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
+using Microsoft.Win32;
 using Funnet.Gwanak.Agent.Infrastructure;
 using Funnet.Gwanak.Agent.Models;
+using Funnet.Gwanak.Agent.Display.SamsungMdc;
 
 namespace Funnet.Gwanak.Agent.Services;
 
@@ -21,6 +24,7 @@ internal sealed class HealthCollector
     public HealthPayload Collect()
     {
         var versions = _umeDetector.DetectAll();
+        var os = ReadOsInfo();
         return new HealthPayload(
             _identity.InstallationId,
             _settings.LocalName,
@@ -34,8 +38,37 @@ internal sealed class HealthCollector
             versions.FirstOrDefault(),
             versions)
         {
-            Display = new DisplayHealth(_settings.Display.Enabled, _settings.Display.Vendor, _settings.Display.Model, _settings.Display.Port)
+            Display = new DisplayHealth(_settings.Display.Enabled, _settings.Display.Vendor, _settings.Display.Model, _settings.Display.Port,
+                SamsungDisplayCapabilities.InputsForModel(_settings.Display.Model).Select(SamsungDisplayCapabilities.NameOf).ToArray()),
+            OsEdition = os.Edition,
+            OsDisplayVersion = os.DisplayVersion,
+            OsBuild = os.Build,
+            OsRevision = os.Revision,
+            AgentElevated = IsAgentElevated()
         };
+    }
+
+    private static bool IsAgentElevated()
+    {
+        try { using var identity = WindowsIdentity.GetCurrent(); return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator); }
+        catch { return false; }
+    }
+
+    private static (string? Edition, string? DisplayVersion, int? Build, int? Revision) ReadOsInfo()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            if (key is null) return (null, null, null, null);
+            var product = key.GetValue("ProductName")?.ToString();
+            var edition = key.GetValue("EditionID")?.ToString();
+            var displayVersion = key.GetValue("DisplayVersion")?.ToString() ?? key.GetValue("ReleaseId")?.ToString();
+            var build = int.TryParse(key.GetValue("CurrentBuildNumber")?.ToString(), out var parsedBuild) ? parsedBuild : (int?)null;
+            var revision = int.TryParse(key.GetValue("UBR")?.ToString(), out var parsedRevision) ? parsedRevision : (int?)null;
+            var label = string.IsNullOrWhiteSpace(edition) ? product : $"{product} ({edition})";
+            return (label, displayVersion, build, revision);
+        }
+        catch { return (null, null, null, null); }
     }
 
     private static bool IsProcessRunning(string processName)

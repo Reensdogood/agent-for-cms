@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Diagnostics;
 
 namespace Funnet.Gwanak.Agent.Services;
 
@@ -15,18 +16,41 @@ internal sealed class PackageDeploymentService(AgentApiClient apiClient)
     {
         var result = await DownloadCoreAsync(downloadPath, fileName, version, expectedSha256, expectedSize, false, cancellationToken);
         var path = result.GetType().GetProperty("path")?.GetValue(result)?.ToString() ?? throw new InvalidOperationException("에이전트 파일 경로가 없습니다.");
-        _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path, "--update") { UseShellExecute = true });
-        return new { version, fileName, path, sha256 = expectedSha256, updated = true };
+        return new AgentPackage(version, fileName, path, expectedSha256);
     }
+
+    public static void StartAgentUpdate(AgentPackage package)
+    {
+        EnsureAutomaticUpdateCanRun();
+        var installer = Process.Start(new ProcessStartInfo(package.Path, "--update")
+        {
+            // The Agent is launched by the HIGHEST scheduled task.  Starting the
+            // requireAdministrator installer directly from that elevated token
+            // keeps the update non-interactive; ShellExecute could otherwise
+            // reintroduce a UAC prompt on some Windows builds.
+            UseShellExecute = false,
+            WorkingDirectory = Path.GetDirectoryName(package.Path) ?? AppContext.BaseDirectory,
+        });
+        if (installer is null)
+            throw new InvalidOperationException("Agent 업데이트 설치기를 시작하지 못했습니다.");
+    }
+
+    public static void EnsureAutomaticUpdateCanRun()
+    {
+        if (!PrivilegedTaskBroker.IsElevated())
+            throw new InvalidOperationException("Agent가 관리자 권한으로 실행 중이 아니어서 자동 업데이트를 시작할 수 없습니다. 관리자 권한으로 Agent를 다시 설치해 주세요.");
+    }
+
+    internal sealed record AgentPackage(string Version, string FileName, string Path, string Sha256);
 
     private async Task<object> DownloadCoreAsync(string downloadPath, string fileName, string version,
         string expectedSha256, long expectedSize, bool requireSignature, CancellationToken cancellationToken)
     {
         if (!fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
             (requireSignature && !fileName.StartsWith("UME-release-", StringComparison.OrdinalIgnoreCase)) ||
-            (!requireSignature && !fileName.StartsWith("Funnet.Gwanak.Agent-", StringComparison.OrdinalIgnoreCase) && !fileName.StartsWith("funnet-gwanak-agent-setup-", StringComparison.OrdinalIgnoreCase)) ||
+            (!requireSignature && !fileName.StartsWith("Funnet.Gwanak.Agent-", StringComparison.OrdinalIgnoreCase) && !fileName.StartsWith("funnet-agent-setup-", StringComparison.OrdinalIgnoreCase) && !fileName.StartsWith("funnet-gwanak-agent-setup-", StringComparison.OrdinalIgnoreCase)) ||
             fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            throw new InvalidOperationException("허용되지 않은 UME 배포 파일명입니다.");
+            throw new InvalidOperationException("허용되지 않은 배포 파일명입니다.");
 
         var baseDataDir = Environment.GetEnvironmentVariable("FUNNET_AGENT_DATA_DIR");
         if (string.IsNullOrWhiteSpace(baseDataDir))

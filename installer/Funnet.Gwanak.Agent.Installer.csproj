@@ -5,20 +5,24 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>funnet-gwanak-agent-setup</AssemblyName>
+    <AssemblyName>funnet-agent-setup</AssemblyName>
     <RootNamespace>Funnet.Gwanak.Agent.Installer</RootNamespace>
     <Version>1.0.0</Version>
-    <Product>Funnet Gwanak Agent Installer</Product>
-    <Company>Funnet</Company>
+    <Product>관악 Agent 설치</Product>
+    <Company>&#x200B;</Company>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\funnet-tray-icon.ico</ApplicationIcon>
+    <!-- Build-Release supplies a generated region-specific provisioning file. -->
+    <FunnetProvisioningFile Condition="'$(FunnetProvisioningFile)' == ''">$(MSBuildProjectDirectory)\payload\provisioning.example.json</FunnetProvisioningFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
     <EmbeddedResource Include="payload\funnet-gwanak-agent.exe" LogicalName="AgentPayload" />
+    <EmbeddedResource Include="$(FunnetProvisioningFile)" LogicalName="ProvisioningPayload" />
     <EmbeddedResource Include="assets\funnet-logo.png" LogicalName="FunnetLogo" />
     <EmbeddedResource Include="assets\funnet-tray-icon.ico" LogicalName="FunnetTrayIcon" />
   </ItemGroup>

@@ -7,6 +7,7 @@ namespace Funnet.Gwanak.Agent;
 
 internal sealed class TrayAgentContext : ApplicationContext
 {
+    private static readonly string AgentVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "-";
     private readonly AgentSettings _settings;
     private readonly DeviceIdentity _identity;
     private readonly HealthCollector _healthCollector;
@@ -16,8 +17,19 @@ internal sealed class TrayAgentContext : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private int _shutdownStarted;
+    private int _resourcesDisposed;
     private DateTimeOffset _lastHeartbeat = DateTimeOffset.MinValue;
     private bool _meetingWindowWasVisible;
+    private DateTimeOffset _lastInvitationAcceptAttempt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastLoginRecoveryAttempt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastUmeWindowInventory = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastUmeSampleTrace = DateTimeOffset.MinValue;
+    private bool? _lastTracedMeetingVisible;
+    private bool _loginRecoveryActive;
+    private int _loginRecoveryAttempts;
+    private int _meetingVisibleSamples;
+    private int _meetingMissingSamples;
     private string _status = "시작 중";
 
     public TrayAgentContext(AgentSettings settings, DeviceIdentityStore identityStore)
@@ -27,6 +39,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         _healthCollector = new HealthCollector(settings, _identity);
         _apiClient = new AgentApiClient(settings, identityStore, _identity);
         _commandExecutor = new AgentCommandExecutor(_apiClient, _healthCollector, _umeController, _settings);
+        _meetingWindowWasVisible = _umeController.IsMeetingWindowVisible();
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem("설정", null, (_, _) => OpenSettings()));
@@ -37,7 +50,7 @@ internal sealed class TrayAgentContext : ApplicationContext
         _notifyIcon = new NotifyIcon
         {
             Icon = LoadTrayIcon(),
-            Text = "funnet-gwanak-agent · 시작 중",
+            Text = $"funnet-agent {AgentVersion} · 시작 중",
             ContextMenuStrip = menu,
             Visible = true,
         };
@@ -83,22 +96,83 @@ internal sealed class TrayAgentContext : ApplicationContext
         {
             try
             {
-                var meetingVisible = _umeController.PrioritizeMeetingWindowIfVisible();
+                var meetingVisible = _umeController.IsMeetingWindowVisible();
+                // 650ms 간격의 전체 표본은 장시간 운영 시 로그를 수십 MB로
+                // 키운다. 상태 전환은 항상 남기고, 변동이 없을 때는 10초
+                // 간격만 남겨 진단 정보와 운영 부담을 함께 지킨다.
+                if (_lastTracedMeetingVisible != meetingVisible || DateTimeOffset.Now - _lastUmeSampleTrace >= TimeSpan.FromSeconds(10))
+                {
+                    _lastTracedMeetingVisible = meetingVisible;
+                    _lastUmeSampleTrace = DateTimeOffset.Now;
+                    RuntimeTrace.Write("ume.window.sample", new { meetingVisible, visibleSamples = _meetingVisibleSamples, missingSamples = _meetingMissingSamples });
+                }
+                if (_umeController.HasUmeWindows() && DateTimeOffset.Now - _lastUmeWindowInventory >= TimeSpan.FromSeconds(10))
+                {
+                    _lastUmeWindowInventory = DateTimeOffset.Now;
+                    RuntimeTrace.Write("ume.window.inventory", _umeController.CaptureWindowInventory());
+                }
                 if (meetingVisible)
                 {
-                    _meetingWindowWasVisible = true;
+                    _meetingVisibleSamples++;
+                    _meetingMissingSamples = 0;
+                    // OS별 창 생성 중간 상태나 일시적인 보조창을 회의창으로
+                    // 오인하지 않도록 연속 3회(약 2초) 확인 후에만 상태 전환한다.
+                    if (_meetingVisibleSamples >= 3 && !_meetingWindowWasVisible)
+                    {
+                        _meetingWindowWasVisible = true;
+                        var fullscreenApplied = _umeController.EnsureMeetingFullscreen();
+                        RuntimeTrace.Write("ume.meeting.detected", new { fullscreenApplied });
+                    }
                     SetStatus("UME 화상회의 진행 중");
                 }
-                else if (_meetingWindowWasVisible)
+                else
                 {
-                    _meetingWindowWasVisible = false;
-                    var result = _umeController.HideAndRestoreDid();
-                    SetStatus("회의 종료 · i-vision 복귀");
-                    _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
+                    _meetingVisibleSamples = 0;
+                    _meetingMissingSamples++;
+                    // 자동 응답은 제목이 '회의 초대'인 UME 초대 팝업에서만
+                    // 녹색 참가 버튼을 찾았을 때 실행한다. 어떤 UME 창도
+                    // 매 주기 최상단으로 올리지 않으며, 연속 클릭을 막기
+                    // 위해 재시도 간격을 둔다.
+                    if (DateTimeOffset.Now - _lastInvitationAcceptAttempt >= TimeSpan.FromSeconds(3))
+                    {
+                        _lastInvitationAcceptAttempt = DateTimeOffset.Now;
+                        var accepted = await _umeController.TryClickForegroundGreenAcceptButtonAsync(cancellationToken);
+                        if (accepted) RuntimeTrace.Write("ume.invitation.accept.requested");
+                    }
+                    // 자동 로그인 체크가 유지돼도 UME가 로그인 화면에 멈추는
+                    // 경우가 있다. 5초 간격으로 로그인 화면만 재확인해서
+                    // 넓은 파란 로그인 버튼을 다시 누르고, 화면이 사라지면
+                    // 복구 완료를 기록한다. 회의·장비 선택 메뉴는 대상이 아니다.
+                    if (DateTimeOffset.Now - _lastLoginRecoveryAttempt >= TimeSpan.FromSeconds(5))
+                    {
+                        _lastLoginRecoveryAttempt = DateTimeOffset.Now;
+                        if (_umeController.IsLoginPromptVisible())
+                        {
+                            var clicked = await _umeController.TryClickLoginButtonAsync(cancellationToken);
+                            if (clicked)
+                            {
+                                _loginRecoveryActive = true;
+                                _loginRecoveryAttempts++;
+                                RuntimeTrace.Write("ume.login.recovery.requested", new { attempts = _loginRecoveryAttempts });
+                            }
+                        }
+                        else if (_loginRecoveryActive)
+                        {
+                            RuntimeTrace.Write("ume.login.recovery.completed", new { attempts = _loginRecoveryAttempts });
+                            _loginRecoveryActive = false;
+                            _loginRecoveryAttempts = 0;
+                        }
+                    }
+                    if (_meetingWindowWasVisible && _meetingMissingSamples >= 3)
+                    {
+                        _meetingWindowWasVisible = false;
+                        // 실제 회의가 끝난 뒤에만 UME 정리와 I-Vision 복귀를 수행한다.
+                        _umeController.CloseAllUmeProcesses();
+                        _umeController.RestoreIvisionOnly();
+                        SetStatus("화상회의 종료 · UME 종료 · i-vision 복귀");
+                        _notifyIcon.ShowBalloonTip(1800, "Funnet 관악 Agent", "화상회의 종료를 감지하고 i-vision으로 복귀했습니다.", ToolTipIcon.Info);
+                    }
                 }
-
-                var clicked = await _umeController.TryClickForegroundGreenAcceptButtonAsync(cancellationToken);
-                if (clicked) SetStatus("UME 참가 버튼 자동 클릭");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
             catch { }
@@ -142,17 +216,20 @@ internal sealed class TrayAgentContext : ApplicationContext
     private void SetStatus(string status)
     {
         _status = status;
-        var text = $"funnet-gwanak-agent · {_status}";
+        var text = $"funnet-agent {AgentVersion} · {_status}";
         if (text.Length > 63) text = text[..63];
         if (_notifyIcon.Text != text) _notifyIcon.Text = text;
     }
 
     private void ExitAgent()
     {
-        _stop.Cancel();
+        // ExitThread()가 ApplicationContext.Dispose()를 호출한다. 여기서
+        // 리소스까지 해제하면 using 블록의 Dispose와 겹쳐 이미 Dispose된
+        // CancellationTokenSource에 Cancel()을 다시 호출하게 된다.
+        if (Interlocked.Exchange(ref _shutdownStarted, 1) != 0) return;
+        RuntimeTrace.Write("agent.shutdown.requested");
+        try { _stop.Cancel(); } catch (ObjectDisposedException) { }
         _notifyIcon.Visible = false;
-        _notifyIcon.Dispose();
-        _apiClient.Dispose();
         ExitThread();
     }
 
@@ -160,7 +237,8 @@ internal sealed class TrayAgentContext : ApplicationContext
     {
         try
         {
-            var setup = Path.Combine(AppContext.BaseDirectory, "funnet-gwanak-agent-setup.exe");
+            var setup = Path.Combine(AppContext.BaseDirectory, "funnet-agent-setup.exe");
+            if (!File.Exists(setup)) setup = Path.Combine(AppContext.BaseDirectory, "funnet-gwanak-agent-setup.exe");
             if (File.Exists(setup)) Process.Start(new ProcessStartInfo(setup, "--configure") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(setup) });
             else Process.Start(new ProcessStartInfo("notepad.exe", $"\"{_settings.SettingsFilePath}\"") { UseShellExecute = true });
         }
@@ -171,8 +249,16 @@ internal sealed class TrayAgentContext : ApplicationContext
     {
         try
         {
-            var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Agent 실행 경로를 확인할 수 없습니다.");
-            Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory });
+            if (!PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.AgentTask))
+                throw new InvalidOperationException("Agent 관리자 권한 자동 실행 작업을 찾을 수 없습니다.");
+            // 새 exe를 먼저 직접 띄우면 기존 mutex가 남아 있어 새 인스턴스가
+            // 즉시 종료될 수 있다. 현재 인스턴스가 정리된 뒤 예약 작업이
+            // 관리자 권한 Agent를 시작하도록 별도 cmd 프로세스에 위임한다.
+            var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
+            start.ArgumentList.Add("/c");
+            start.ArgumentList.Add($"timeout /t 2 /nobreak >nul & schtasks /Run /TN \"{PrivilegedTaskBroker.AgentTask}\"");
+            if (Process.Start(start) is null) throw new InvalidOperationException("Agent 재시작 작업을 시작하지 못했습니다.");
+            RuntimeTrace.Write("agent.restart.requested", new { task = PrivilegedTaskBroker.AgentTask });
             ExitAgent();
         }
         catch (Exception exception) { SetStatus($"재시작 실패: {exception.Message}"); }
@@ -180,9 +266,10 @@ internal sealed class TrayAgentContext : ApplicationContext
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (disposing && Interlocked.Exchange(ref _resourcesDisposed, 1) == 0)
         {
-            _stop.Cancel();
+            RuntimeTrace.Write("agent.resources.dispose");
+            try { _stop.Cancel(); } catch (ObjectDisposedException) { }
             _notifyIcon.Dispose();
             _apiClient.Dispose();
             _sendLock.Dispose();

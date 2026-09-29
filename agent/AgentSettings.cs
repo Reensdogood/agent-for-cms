@@ -7,6 +7,9 @@ internal sealed class AgentSettings
 {
     public string ServerBaseUrl { get; init; } = "http://127.0.0.1:4170";
     public string EnrollmentKey { get; init; } = "";
+    // 등록 키 원문을 저장하지 않고도 설치기가 다른 지역 설치인지 판단할 수 있는
+    // SHA-256 지문이다. 장비 토큰을 다른 지역으로 잘못 재사용하지 않는다.
+    public string EnrollmentKeyFingerprint { get; init; } = "";
     public string LocalName { get; init; } = Environment.MachineName;
     public int HeartbeatSeconds { get; init; } = 30;
     public int CommandPollSeconds { get; init; } = 5;
@@ -35,6 +38,7 @@ internal sealed class AgentSettings
         {
             ServerBaseUrl = string.IsNullOrWhiteSpace(serverUrl) ? settings.ServerBaseUrl : serverUrl,
             EnrollmentKey = string.IsNullOrWhiteSpace(enrollmentKey) ? settings.EnrollmentKey : enrollmentKey,
+            EnrollmentKeyFingerprint = settings.EnrollmentKeyFingerprint,
             LocalName = string.IsNullOrWhiteSpace(localName) ? settings.LocalName : localName,
             HeartbeatSeconds = Math.Clamp(settings.HeartbeatSeconds, 10, 600),
             CommandPollSeconds = Math.Clamp(settings.CommandPollSeconds, 2, 60),
@@ -50,6 +54,7 @@ internal sealed class AgentSettings
         {
             serverBaseUrl = ServerBaseUrl,
             enrollmentKey = "",
+            enrollmentKeyFingerprint = EnrollmentKeyFingerprint,
             localName = LocalName,
             heartbeatSeconds = HeartbeatSeconds,
             commandPollSeconds = CommandPollSeconds,

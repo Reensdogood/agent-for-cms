@@ -11,11 +11,19 @@ const packagePath = path.join(currentDir, "..", "package.json");
 const appVersion = JSON.parse(fs.readFileSync(packagePath, "utf8")).version || "0.0.0";
 const dataDir = process.env.FUNNET_DATA_DIR || path.join(currentDir, "data");
 const releaseDir = path.join(dataDir, "releases");
+const bootstrapInstallerPath = path.join(dataDir, "funnet-agent-bootstrap.exe");
 const databasePath = path.join(dataDir, "funnet.db");
 const port = Number(process.env.PORT || 4170);
 const adminUser = process.env.FUNNET_ADMIN_USER || "admin";
 const adminPassword = process.env.FUNNET_ADMIN_PASSWORD;
 const enrollmentKey = process.env.FUNNET_ENROLLMENT_KEY;
+const enercareBaseUrl = String(process.env.ENERCARE_BASE_URL || "https://dwcon.enercare.co.kr:18443").replace(/\/$/, "");
+const enercareServerId = String(process.env.ENERCARE_DWD_SERVER_ID || "FUNNET");
+const enercareGroupId = String(process.env.ENERCARE_DWD_GROUP_ID || "FUNNET");
+const enercareServerSecret = String(process.env.ENERCARE_DWD_SERVER_SECRET || "");
+const enercareCallbackSecret = String(process.env.ENERCARE_CON_SERVER_SECRET || "");
+let enercareToken = null;
+let enercareTokenRequest = null;
 // 운영 여부와 무관하게 명시 설정을 우선한다. 내부망 HTTP(4171) 테스트에서는
 // FUNNET_COOKIE_SECURE=false로 세션 쿠키를 저장할 수 있어야 한다.
 const secureCookies = process.env.FUNNET_COOKIE_SECURE === "true";
@@ -91,13 +99,15 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS releases (
     id TEXT PRIMARY KEY,
-    version TEXT NOT NULL UNIQUE,
+    version TEXT NOT NULL,
+    region_id TEXT,
     file_name TEXT NOT NULL,
     file_path TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    UNIQUE (version, region_id, file_name)
   );
 
   CREATE TABLE IF NOT EXISTS schedules (
@@ -132,6 +142,43 @@ db.exec(`
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS smart_plugs (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL UNIQUE REFERENCES devices(id) ON DELETE CASCADE,
+    enercare_device_id TEXT NOT NULL UNIQUE,
+    low_group_id TEXT NOT NULL DEFAULT '',
+    sub_group_id TEXT NOT NULL DEFAULT '',
+    display_name TEXT NOT NULL DEFAULT '',
+    connection_status TEXT,
+    power_status TEXT,
+    last_synced_at TEXT,
+    last_error TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS enercare_group_options (
+    low_group_id TEXT NOT NULL,
+    low_group_name TEXT NOT NULL,
+    sub_group_id TEXT NOT NULL DEFAULT '',
+    sub_group_name TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (low_group_id, sub_group_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS enercare_callback_tokens (
+    token_hash TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS installer_bootstrap_tokens (
+    token_hash TEXT PRIMARY KEY,
+    region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
 `);
 
 ensureColumn("commands", "attempts", "INTEGER NOT NULL DEFAULT 0");
@@ -141,12 +188,15 @@ ensureColumn("users", "active", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("schedules", "region_ids_json", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("users", "updated_at", "TEXT");
 db.prepare("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''").run();
+migrateReleasesSchema();
 seedDefaultRegion();
+seedEnercareGroupOptions();
 
 seedAdmin();
 
 const sessions = new Map();
 const loginAttempts = new Map();
+const registrationRejectionAuditAt = new Map();
 
 function now() {
   return new Date().toISOString();
@@ -228,6 +278,10 @@ function canOperate(session) {
   return ["admin", "operator", "region_manager", "system_manager"].includes(session?.role);
 }
 
+function canManageSmartPlugs(session) {
+  return ["admin", "operator", "system_manager"].includes(session?.role);
+}
+
 function sameRegionOnly(session) {
   return session?.role === "region_manager";
 }
@@ -265,6 +319,59 @@ function seedAdmin() {
     db.prepare("INSERT INTO users (username, password_hash, role, active, created_at, updated_at) VALUES (?, ?, 'admin', 1, ?, ?)")
       .run(adminUser, hashPassword(adminPassword), timestamp, timestamp);
   }
+}
+
+function seedEnercareGroupOptions() {
+  const rows = [
+    ["GM", "광명", "A-GM", "A그룹-광명(광명,철산,학온)"],
+    ["GM", "광명", "B-GM", "B그룹-광명(소하,일직,하안)"],
+    ["GM", "광명", "", "ALL 전체"],
+    ["GWANAK9", "관악구", "", "ALL 전체"],
+    ["SSCH", "스마트경로당", "DALSEO", "달서구스마트경로당"],
+    ["SSCH", "스마트경로당", "GANGJIN", "강진 스마트경로당"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "YS-I", "유성아이돌봄센터"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "YS-ST", "유성구 스튜디오"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "YS-T", "유성구 지역아동센터"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "YS-YOUTH", "유성구 청소년 시설"],
+    ["YUSEONG", "유성구 스마트 돌봄 체계 구축 사업", "", "ALL 전체"],
+  ];
+  const insert = db.prepare("INSERT OR IGNORE INTO enercare_group_options (low_group_id, low_group_name, sub_group_id, sub_group_name) VALUES (?, ?, ?, ?)");
+  for (const row of rows) insert.run(...row);
+}
+
+// 1.5.0 installers are built with one enrollment key per region.  Older
+// databases made `version` globally unique, which cannot store two regional
+// packages of the same Agent version.  Rebuild this isolated table in-place;
+// commands refer to release ids only inside JSON, so no foreign key is lost.
+function migrateReleasesSchema() {
+  const columns = db.prepare("PRAGMA table_info(releases)").all();
+  const hasRegion = columns.some((column) => column.name === "region_id");
+  const hasVersionOnlyUnique = db.prepare("PRAGMA index_list(releases)").all().some((index) => {
+    if (!index.unique) return false;
+    const indexed = db.prepare(`PRAGMA index_info(${index.name})`).all();
+    return indexed.length === 1 && indexed[0].name === "version";
+  });
+  if (hasRegion && !hasVersionOnlyUnique) return;
+  db.exec(`
+    BEGIN;
+    CREATE TABLE releases_next (
+      id TEXT PRIMARY KEY,
+      version TEXT NOT NULL,
+      region_id TEXT,
+      file_name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      sha256 TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (version, region_id, file_name)
+    );
+    INSERT INTO releases_next (id, version, region_id, file_name, file_path, size_bytes, sha256, created_by, created_at)
+      SELECT id, version, ${hasRegion ? "region_id" : "NULL"}, file_name, file_path, size_bytes, sha256, created_by, created_at FROM releases;
+    DROP TABLE releases;
+    ALTER TABLE releases_next RENAME TO releases;
+    COMMIT;
+  `);
 }
 
 function json(res, status, body, extraHeaders = {}) {
@@ -399,6 +506,155 @@ function statusFor(lastSeenAt) {
   return "offline";
 }
 
+function equalSecret(left, right) {
+  const a = Buffer.from(String(left || ""), "utf8");
+  const b = Buffer.from(String(right || ""), "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+async function handleEnercareCallback(req, res, url) {
+  if (req.method === "POST" && url.pathname === "/conn/v1/publish/servertoken") {
+    if (!enercareCallbackSecret) return json(res, 503, { reason: "EnerCare callback secret is not configured" });
+    const header = String(req.headers.authorization || "");
+    const encoded = header.startsWith("Basic ") ? header.slice(6) : "";
+    const decoded = encoded ? Buffer.from(encoded, "base64").toString("utf8") : "";
+    const [serverId, suppliedSecret] = decoded.split(/:(.*)/s);
+    if (serverId !== enercareServerId || !equalSecret(suppliedSecret, enercareCallbackSecret)) return json(res, 401, { reason: "Unauthorized" });
+    const token = crypto.randomBytes(32).toString("base64url");
+    db.prepare("INSERT OR REPLACE INTO enercare_callback_tokens (token_hash, expires_at, created_at) VALUES (?, ?, ?)")
+      .run(hashToken(token), "9999-12-31T23:59:59.000Z", now());
+    return json(res, 200, { con_access_token: token, con_access_token_expiredate: "9999-12-31 23:59:59" });
+  }
+  if (req.method === "POST" && url.pathname === "/conn/v1/transfer/device/realtimedata") {
+    const body = await readJson(req);
+    const token = String(body.con_server_access_token || "");
+    const known = token && db.prepare("SELECT expires_at FROM enercare_callback_tokens WHERE token_hash = ?").get(hashToken(token));
+    if (body.con_server_id !== enercareServerId || !known || Date.parse(known.expires_at) < Date.now()) return json(res, 401, { reason: "Unauthorized" });
+    const plug = db.prepare("SELECT * FROM smart_plugs WHERE enercare_device_id = ?").get(String(body.device_id || ""));
+    if (plug) {
+      const state = plugState(body);
+      db.prepare("UPDATE smart_plugs SET connection_status=?, power_status=?, last_synced_at=?, last_error=NULL, updated_at=? WHERE id=?")
+        .run(state.connection, state.power, now(), now(), plug.id);
+    }
+    return json(res, 200, { result: "OK" });
+  }
+  return json(res, 404, { reason: "Not Found" });
+}
+
+function enercareIsConfigured() {
+  return Boolean(enercareServerSecret && enercareCallbackSecret);
+}
+
+function enercareError(message, status = 502) {
+  return Object.assign(new Error(message), { status });
+}
+
+async function enercareAccessToken(forceRefresh = false) {
+  if (!enercareIsConfigured()) throw enercareError("EnerCare 연동 정보가 아직 설정되지 않았습니다.", 503);
+  if (!forceRefresh && enercareToken && enercareToken.expiresAt > Date.now() + 60_000) return enercareToken.value;
+  if (enercareTokenRequest) return enercareTokenRequest;
+  enercareTokenRequest = (async () => {
+    const authorization = Buffer.from(`${enercareServerId}:${enercareServerSecret}`, "utf8").toString("base64");
+    const response = await fetch(`${enercareBaseUrl}/conn/v1/publish/servertoken`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-HIT-Version": "1.0", Authorization: `Basic ${authorization}` },
+      body: JSON.stringify({ dwd_group_id: enercareGroupId }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !body.dwd_access_token) throw enercareError(`EnerCare 인증에 실패했습니다.${body.reason ? ` ${body.reason}` : ""}`, response.status || 502);
+    const expiresAt = Date.parse(String(body.dwd_access_token_expiredate || ""));
+    enercareToken = { value: String(body.dwd_access_token), expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 23 * 60 * 60 * 1000 };
+    return enercareToken.value;
+  })();
+  try { return await enercareTokenRequest; }
+  finally { enercareTokenRequest = null; }
+}
+
+async function enercareRequest(endpoint, payload, retryOnInvalidToken = true) {
+  const token = await enercareAccessToken(!retryOnInvalidToken);
+  const response = await fetch(`${enercareBaseUrl}${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-HIT-Version": "1.0" },
+    body: JSON.stringify({ dwd_server_id: enercareServerId, dwd_access_token: token, group_id: enercareGroupId, ...payload }),
+  });
+  const body = await response.json().catch(() => ({}));
+  const invalidToken = response.status === 498 || /token\s+incorrect|invalid\s+token/i.test(String(body.reason || ""));
+  // 다원 서버가 토큰 만료 시각보다 먼저 토큰을 무효화하는 경우가 있어, 한 번만
+  // 새 토큰으로 재시도한다. 반복 재시도는 API 분당 요청 제한을 건드릴 수 있다.
+  if (!response.ok && invalidToken && retryOnInvalidToken) {
+    enercareToken = null;
+    return enercareRequest(endpoint, payload, false);
+  }
+  if (!response.ok) throw enercareError(`EnerCare 요청에 실패했습니다.${body.reason ? ` ${body.reason}` : ""}`, response.status || 502);
+  return body;
+}
+
+function plugState(value) {
+  const results = value?.results || value || {};
+  return {
+    connection: String(results.conn_status) === "1" ? "online" : "offline",
+    power: String(results.switch_status || "").toUpperCase() === "ON" ? "on" : "off",
+    uploadTime: results.upload_time || null,
+  };
+}
+
+async function refreshSmartPlug(plug) {
+  try {
+    const response = await enercareRequest("/conn/v1/inquire/device/values", {
+      device_id: plug.enercare_device_id,
+      inquire_values: ["switch_status", "conn_status", "upload_time"],
+    });
+    const state = plugState(response);
+    db.prepare("UPDATE smart_plugs SET connection_status = ?, power_status = ?, last_synced_at = ?, last_error = NULL, updated_at = ? WHERE id = ?")
+      .run(state.connection, state.power, now(), now(), plug.id);
+    return { ...plug, ...state, lastSyncedAt: now(), lastError: null };
+  } catch (error) {
+    const message = String(error.message || "EnerCare 상태 조회 실패").slice(0, 500);
+    db.prepare("UPDATE smart_plugs SET last_error = ?, updated_at = ? WHERE id = ?").run(message, now(), plug.id);
+    throw error;
+  }
+}
+
+function smartPlugDto(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    enercareDeviceId: row.enercare_device_id,
+    lowGroupId: row.low_group_id,
+    subGroupId: row.sub_group_id,
+    displayName: row.display_name,
+    connection: row.connection_status || "offline",
+    power: row.power_status || "off",
+    lastSyncedAt: row.last_synced_at || null,
+    lastError: row.last_error || null,
+  };
+}
+
+async function controlSmartPlugs(rows, control) {
+  const succeeded = [];
+  const failed = [];
+  // EnerCare는 분당 요청 수를 제한하므로 작은 동시성으로 제어한다.
+  for (let offset = 0; offset < rows.length; offset += 4) {
+    const batch = rows.slice(offset, offset + 4);
+    const results = await Promise.all(batch.map(async (plug) => {
+      try {
+        const response = await enercareRequest("/conn/v1/control/device/onoff", {
+          device_id: plug.enercare_device_id, control, control_time: now().replace("T", " ").slice(0, 19),
+        });
+        db.prepare("UPDATE smart_plugs SET power_status=?, connection_status='online', last_synced_at=?, last_error=NULL, updated_at=? WHERE id=?")
+          .run(control.toLowerCase(), now(), now(), plug.id);
+        return { ok: true, id: plug.id, deviceId: plug.device_id, result: response.result || control };
+      } catch (error) {
+        const message = String(error.message || "EnerCare 제어 실패").slice(0, 500);
+        db.prepare("UPDATE smart_plugs SET last_error=?, updated_at=? WHERE id=?").run(message, now(), plug.id);
+        return { ok: false, id: plug.id, deviceId: plug.device_id, error: message };
+      }
+    }));
+    for (const item of results) (item.ok ? succeeded : failed).push(item);
+  }
+  return { succeeded, failed };
+}
+
 function compareReleaseVersions(left, right) {
   const a = String(left).split(".").map(Number);
   const b = String(right).split(".").map(Number);
@@ -409,69 +665,133 @@ function compareReleaseVersions(left, right) {
   return 0;
 }
 
-function humanizeOsVersion(value) {
-  const raw = String(value || "");
-  const match = raw.match(/10\.0\.(\d+)/i);
-  if (!match) return raw || null;
-  const build = Number(match[1]);
-  if (build >= 26100) return `Windows 11 (24H2) · 빌드 ${build}`;
-  if (build >= 22621) return `Windows 11 · 빌드 ${build}`;
-  if (build >= 22000) return `Windows 11 · 빌드 ${build}`;
-  if (build >= 19041) return `Windows 10 · 빌드 ${build}`;
-  return `Windows · 빌드 ${build}`;
+function isAgentReleaseName(fileName) {
+  return /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(fileName);
+}
+
+function releaseDto(row) {
+  return {
+    id: row.id,
+    version: row.version,
+    fileName: row.file_name,
+    sizeBytes: row.size_bytes,
+    sha256: row.sha256,
+    regionId: row.region_id || null,
+    regionName: row.region_name || null,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+function streamRelease(res, release) {
+  res.writeHead(200, {
+    "Content-Type": "application/octet-stream",
+    "Content-Length": release.size_bytes,
+    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(release.file_name)}`,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store",
+  });
+  return fs.createReadStream(release.file_path).pipe(res);
+}
+
+function auditRegistrationRejection(reason, enrollment, installationId, localName) {
+  // 등록 실패 Agent는 5초마다 재시도한다. 같은 원인을 모두 기록하면
+  // 감사 로그가 급증하므로 장비·원인별로 5분마다 한 번만 남긴다.
+  const keyFingerprint = crypto.createHash("sha256").update(String(enrollment || "")).digest("hex").slice(0, 12);
+  const key = `${reason}:${keyFingerprint}:${installationId}`;
+  const previous = registrationRejectionAuditAt.get(key) || 0;
+  if (Date.now() - previous < 5 * 60 * 1000) return;
+  if (registrationRejectionAuditAt.size > 500) registrationRejectionAuditAt.clear();
+  registrationRejectionAuditAt.set(key, Date.now());
+  audit("agent:registration", "device.register.rejected", null, { reason, keyFingerprint, installationId, localName });
+}
+
+function bootstrapTokenHash(value) { return crypto.createHash("sha256").update(value).digest("hex"); }
+
+function createBootstrapToken(regionId) {
+  const token = crypto.randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare("INSERT INTO installer_bootstrap_tokens (token_hash, region_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
+    .run(bootstrapTokenHash(token), regionId, expiresAt, now());
+  return token;
+}
+
+function streamBootstrapInstaller(res, token) {
+  const stat = fs.statSync(bootstrapInstallerPath);
+  // Windows single-file exe는 실행에 사용되지 않는 overlay 바이트를 허용한다.
+  // 파일명은 브라우저가 중복 다운로드 시 바꿀 수 있으므로, 같은 토큰을 파일
+  // 끝에도 넣어 설치기가 이름과 무관하게 지역 등록 정보를 찾을 수 있게 한다.
+  const trailer = Buffer.from(`\nFUNNET_BOOTSTRAP_TOKEN:${token}\n`, "utf8");
+  res.writeHead(200, {
+    "Content-Type": "application/octet-stream",
+    "Content-Length": stat.size + trailer.length,
+    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`funnet-agent-bootstrap-${token}.exe`)}`,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store",
+  });
+  const stream = fs.createReadStream(bootstrapInstallerPath);
+  stream.once("error", () => res.destroy());
+  stream.once("end", () => res.end(trailer));
+  return stream.pipe(res, { end: false });
+}
+
+function humanizeOsVersion(value, edition, displayVersion, buildValue, revisionValue) {
+  // 서버 화면에는 빌드 번호로 추정한 OS 계열을 표시하지 않는다.
+  // Agent가 보고한 사람이 읽을 수 있는 에디션과 릴리즈 버전만 사용한다.
+  const labels = [edition, displayVersion].filter((value) => value && String(value).trim());
+  return labels.length ? labels.join(" · ") : (String(value || "") || null);
 }
 
 function clearPendingDisplayCommands(deviceId) {
   return Number(db.prepare("DELETE FROM commands WHERE device_id = ? AND type LIKE 'display.%' AND status IN ('pending','delivered')").run(deviceId).changes || 0);
 }
 
-function capabilityFromHealth(health, name, fallback = true) {
-  const capabilities = health && typeof health.capabilities === "object" ? health.capabilities : null;
-  return capabilities && typeof capabilities[name] === "boolean" ? capabilities[name] : fallback;
-}
-
-function deviceHasCapability(deviceId, name, fallback = true) {
-  const row = db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(deviceId);
-  try { return capabilityFromHealth(JSON.parse(row?.last_health_json || "{}"), name, fallback); }
-  catch { return fallback; }
-}
-
 const knownDisplayInputs = new Set(["HDMI1", "HDMI2", "HDMI3"]);
 
 function displayInputsForHealth(health) {
   const declared = Array.isArray(health?.display?.inputSources)
-    ? health.display.inputSources
-    : Array.isArray(health?.capabilities?.supportedInputs) ? health.capabilities.supportedInputs : [];
-  const inputs = declared.map((value) => String(value || "").toUpperCase()).filter((value) => knownDisplayInputs.has(value));
-  return inputs.length ? [...new Set(inputs)] : ["HDMI1", "HDMI2"];
+    ? health.display.inputSources.map((value) => String(value || "").toUpperCase()).filter((value) => knownDisplayInputs.has(value))
+    : [];
+  if (declared.length) return [...new Set(declared)];
+  // 이전 Agent는 HDMI3 MDC 값을 이해하지 못하므로, 새 Health 계약을 보고하기 전에는
+  // 기존 HDMI1/HDMI2 범위만 허용한다. 업데이트 직후 첫 heartbeat부터 HDMI3이 열린다.
+  return ["HDMI1", "HDMI2"];
 }
 
 function deviceSupportsDisplayInput(health, input) {
   return displayInputsForHealth(health).includes(String(input || "").toUpperCase());
 }
 
+function capabilityFromHealth(health, name, fallback = true) {
+  return typeof health?.capabilities?.[name] === "boolean" ? health.capabilities[name] : fallback;
+}
+
+function deviceHasCapability(deviceId, name, fallback = true) {
+  try {
+    const row = db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(deviceId);
+    return capabilityFromHealth(JSON.parse(row?.last_health_json || "{}"), name, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
 function deviceDto(row) {
   let displayEnabled = false;
-  let osVersion = null;
+  let displayInputs = ["HDMI1", "HDMI2"];
   let platform = "windows";
-  let capabilities = { displayControl: false, ume: true, ivision: true, windowsShutdown: true, agentUpdate: true, supportedInputs: ["HDMI1", "HDMI2"] };
-  try {
-    const health = JSON.parse(row.last_health_json || "{}");
-    displayEnabled = Boolean(health.display?.enabled);
-    osVersion = health.osVersion || null;
-    platform = health.platform === "android" ? "android" : "windows";
-    capabilities = { ...capabilities, displayControl: displayEnabled, ...(health.capabilities || {}) };
-    capabilities.supportedInputs = displayInputsForHealth(health);
-  } catch {}
+  let capabilities = { displayControl: false, ume: true, ivision: true, windowsShutdown: true, agentUpdate: true, supportedInputs: displayInputs };
+  let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null; let agentElevated = null;
+  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); displayInputs = displayInputsForHealth(health); platform = health.platform === "android" ? "android" : "windows"; capabilities = { ...capabilities, ...(health.capabilities || {}), supportedInputs: displayInputs }; osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
   const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
   if (displayCheck?.status === "completed") displayConnection = "정상";
   else if (displayCheck?.status === "failed") displayConnection = "연결 실패";
+  const smartPlug = smartPlugDto(db.prepare("SELECT * FROM smart_plugs WHERE device_id = ?").get(row.id));
   return {
     id: row.id,
     platform,
     capabilities,
-    osVersion: humanizeOsVersion(osVersion),
+    osVersion: humanizeOsVersion(osVersion, osEdition, osDisplayVersion, osBuild, osRevision),
     installationId: row.installation_id,
     regionId: row.region_id,
     regionName: row.region_name || "미지정",
@@ -481,6 +801,7 @@ function deviceDto(row) {
     approved: Boolean(row.approved),
     status: statusFor(row.last_seen_at),
     agentVersion: String(row.agent_version || "").split("+")[0] || null,
+    agentElevationRequired: agentElevated === false,
     ume: {
       name: row.ume_name,
       version: row.ume_version,
@@ -491,6 +812,8 @@ function deviceDto(row) {
     foregroundApp: row.foreground_app,
     lastSeenAt: row.last_seen_at,
     displayEnabled,
+    displayInputs,
+    smartPlug,
     displayConnection,
     displayCheckedAt: displayCheck?.completed_at || null,
     createdAt: row.created_at,
@@ -499,6 +822,16 @@ function deviceDto(row) {
 }
 
 async function handleApi(req, res, url) {
+  const provisioningMatch = url.pathname.match(/^\/api\/installer-provisioning\/([A-Za-z0-9_-]{24,128})$/);
+  if (req.method === "GET" && provisioningMatch) {
+    const token = provisioningMatch[1];
+    const record = db.prepare("SELECT region_id, expires_at FROM installer_bootstrap_tokens WHERE token_hash = ?").get(bootstrapTokenHash(token));
+    if (!record || Date.parse(record.expires_at) <= Date.now()) return json(res, 404, { error: "설치 파일의 지역 등록 정보가 만료되었습니다. 관리자 화면에서 다시 내려받아 주세요." });
+    const region = db.prepare("SELECT * FROM regions WHERE id = ?").get(record.region_id);
+    if (!region) return json(res, 404, { error: "지역 등록 정보를 찾을 수 없습니다." });
+    return json(res, 200, { serverBaseUrl: publicServerUrl(req), enrollmentKey: region.enrollment_key, regionName: region.name });
+  }
+
   if (req.method === "POST" && url.pathname === "/api/auth/login") {
     const address = req.socket.remoteAddress || "unknown";
     const attempt = loginAttempts.get(address) || { count: 0, blockedUntil: 0 };
@@ -551,18 +884,22 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/agent/register") {
-    const region = findRegionByEnrollmentKey(String(req.headers["x-enrollment-key"] || ""));
-    if (!region) {
-      return json(res, 401, { error: "등록 키가 올바르지 않습니다." });
-    }
     const body = await readJson(req);
+    const enrollment = String(req.headers["x-enrollment-key"] || "");
     const installationId = String(body.installationId || "").trim();
     const localName = String(body.localName || body.machineName || "미지정 장비").trim().slice(0, 100);
+    const region = findRegionByEnrollmentKey(enrollment);
+    if (!region) {
+      auditRegistrationRejection("invalid_enrollment_key", enrollment, installationId, localName);
+      return json(res, 401, { error: "등록 키가 올바르지 않습니다." });
+    }
     if (!/^[a-f0-9-]{36}$/i.test(installationId)) {
+      auditRegistrationRejection("invalid_installation_id", enrollment, installationId, localName);
       return json(res, 400, { error: "installationId 형식이 올바르지 않습니다." });
     }
     const existing = db.prepare("SELECT * FROM devices WHERE installation_id = ?").get(installationId);
     if (existing) {
+      auditRegistrationRejection("duplicate_installation_id", enrollment, installationId, localName);
       return json(res, 409, { error: "이미 등록된 장비입니다. 저장된 장비 토큰을 사용해야 합니다." });
     }
     const deviceId = crypto.randomUUID();
@@ -778,23 +1115,56 @@ async function handleApi(req, res, url) {
     if (!region) return json(res, 404, { error: "지역을 찾을 수 없습니다." });
     const nextKey = crypto.randomBytes(24).toString("base64url");
     db.prepare("UPDATE regions SET enrollment_key = ?, updated_at = ? WHERE id = ?").run(nextKey, now(), region.id);
+    db.prepare("DELETE FROM installer_bootstrap_tokens WHERE region_id = ?").run(region.id);
     audit(session.username, "region.rotate_key", region.id, { name: region.name });
     return json(res, 200, { region: regionDto(db.prepare("SELECT * FROM regions WHERE id = ?").get(region.id)), serverBaseUrl: publicServerUrl(req) });
+  }
+
+  const regionInstallerMatch = url.pathname.match(/^\/api\/regions\/([a-f0-9-]+)\/agent-installer$/i);
+  if (req.method === "POST" && regionInstallerMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    const region = db.prepare("SELECT * FROM regions WHERE id = ?").get(regionInstallerMatch[1]);
+    if (!region) return json(res, 404, { error: "지역을 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && region.id !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 내려받을 수 있습니다." });
+    if (!fs.existsSync(bootstrapInstallerPath)) return json(res, 503, { error: "최신 Agent 설치 파일 템플릿이 아직 준비되지 않았습니다." });
+    const token = createBootstrapToken(region.id);
+    audit(session.username, "region.agent_installer.download", region.id, { name: region.name });
+    return json(res, 200, { downloadPath: `/api/regions/${region.id}/agent-installer/download?token=${encodeURIComponent(token)}` });
+  }
+
+  const regionInstallerDownloadMatch = url.pathname.match(/^\/api\/regions\/([a-f0-9-]+)\/agent-installer\/download$/i);
+  if (req.method === "GET" && regionInstallerDownloadMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const regionId = regionInstallerDownloadMatch[1];
+    if (sameRegionOnly(session) && regionId !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 내려받을 수 있습니다." });
+    const token = String(url.searchParams.get("token") || "");
+    const record = db.prepare("SELECT region_id, expires_at FROM installer_bootstrap_tokens WHERE token_hash = ?").get(bootstrapTokenHash(token));
+    if (!record || record.region_id !== regionId || Date.parse(record.expires_at) <= Date.now()) return json(res, 404, { error: "다운로드 정보가 만료되었습니다. 다시 시도해 주세요." });
+    if (!fs.existsSync(bootstrapInstallerPath)) return json(res, 503, { error: "최신 Agent 설치 파일 템플릿이 아직 준비되지 않았습니다." });
+    return streamBootstrapInstaller(res, token);
   }
 
   if (req.method === "GET" && url.pathname === "/api/releases") {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const releases = db.prepare("SELECT id, version, file_name, size_bytes, sha256, created_by, created_at FROM releases ORDER BY created_at DESC").all();
-    return json(res, 200, { releases: releases.map((item) => ({
-      id: item.id, version: item.version, fileName: item.file_name, sizeBytes: item.size_bytes,
-      sha256: item.sha256, createdBy: item.created_by, createdAt: item.created_at,
-    })) });
+    const scope = sameRegionOnly(session) ? "WHERE releases.region_id = ?" : "";
+    const releases = db.prepare(`
+      SELECT releases.*, regions.name AS region_name
+      FROM releases LEFT JOIN regions ON regions.id = releases.region_id
+      ${scope} ORDER BY releases.created_at DESC
+    `).all(...(sameRegionOnly(session) ? [session.regionId] : []));
+    return json(res, 200, { releases: releases.map(releaseDto) });
   }
 
   if (req.method === "GET" && url.pathname === "/api/commands") {
     const session = requireAdmin(req, res);
     if (!session) return;
+    // 시스템 상태는 전체 장비의 명령 실패/미응답 내역을 포함한다. 지역 관리자는
+    // 다른 지역 장비의 운영 정보를 볼 수 없도록 조회 자체를 막고, 운영 및
+    // 시스템 담당자에게만 읽기 권한을 준다.
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 50), 1), 200);
     const rows = db.prepare(`
       SELECT commands.id, commands.device_id, commands.type, commands.status, commands.attempts,
@@ -820,29 +1190,114 @@ async function handleApi(req, res, url) {
     })) });
   }
 
+  if (req.method === "GET" && url.pathname === "/api/smart-plugs/groups") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const groups = db.prepare("SELECT low_group_id, low_group_name, sub_group_id, sub_group_name FROM enercare_group_options ORDER BY low_group_name, sub_group_name").all();
+    return json(res, 200, { groups, configured: Boolean(enercareServerSecret) });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/smart-plugs/catalog") {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 등록은 시스템 또는 운영 관리자만 할 수 있습니다." });
+    const body = await readJson(req);
+    const lowGroupId = String(body.lowGroupId || "").trim().slice(0, 80);
+    const subGroupId = String(body.subGroupId || "").trim().slice(0, 80);
+    const result = await enercareRequest("/conn/v1/profile/device/list", { low_group_id: lowGroupId, sub_group_id: subGroupId, inquire_time: now().replace("T", " ").slice(0, 19) });
+    return json(res, 200, { devices: Array.isArray(result.deviceList) ? result.deviceList.map((item) => ({
+      deviceId: item.device_id, displayName: item.display_name || item.device_id, lowGroupId: item.low_group_id || lowGroupId,
+      subGroupId: item.sub_group_id || subGroupId, connection: String(item.conn_status) === "1" ? "online" : "offline",
+      power: String(item.power).toLowerCase() === "true" ? "on" : "off",
+    })) : [] });
+  }
+
+  const smartPlugMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/smart-plug$/i);
+  const smartPlugStatusMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/smart-plug\/status$/i);
+  const smartPlugPowerMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/smart-plug\/power$/i);
+  if (smartPlugMatch || smartPlugStatusMatch || smartPlugPowerMatch) {
+    const session = requireAdmin(req, res, req.method !== "GET");
+    if (!session) return;
+    const deviceId = (smartPlugMatch || smartPlugStatusMatch || smartPlugPowerMatch)[1];
+    const device = db.prepare("SELECT id, region_id, display_name FROM devices WHERE id = ?").get(deviceId);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 조회할 수 있습니다." });
+    const plug = db.prepare("SELECT * FROM smart_plugs WHERE device_id = ?").get(device.id);
+    if (req.method === "GET" && smartPlugStatusMatch) {
+      if (!plug) return json(res, 404, { error: "이 장비에 등록된 스마트플러그가 없습니다." });
+      const current = await refreshSmartPlug(plug);
+      return json(res, 200, { smartPlug: smartPlugDto({ ...plug, connection_status: current.connection, power_status: current.power, last_synced_at: current.lastSyncedAt, last_error: null }) });
+    }
+    if (req.method === "POST" && smartPlugPowerMatch) {
+      if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 제어는 시스템 또는 운영 관리자만 할 수 있습니다." });
+      if (!plug) return json(res, 404, { error: "이 장비에 등록된 스마트플러그가 없습니다." });
+      const body = await readJson(req);
+      if (typeof body.on !== "boolean") return json(res, 400, { error: "on 값은 true 또는 false여야 합니다." });
+      const current = await refreshSmartPlug(plug);
+      if (current.connection !== "online") return json(res, 409, { error: "스마트플러그가 오프라인입니다. 온라인 상태에서만 전원을 제어할 수 있습니다." });
+      const wanted = body.on ? "ON" : "OFF";
+      const response = await enercareRequest("/conn/v1/control/device/onoff", { device_id: plug.enercare_device_id, control: wanted, control_time: now().replace("T", " ").slice(0, 19) });
+      db.prepare("UPDATE smart_plugs SET power_status = ?, connection_status = 'online', last_synced_at = ?, last_error = NULL, updated_at = ? WHERE id = ?")
+        .run(wanted.toLowerCase(), now(), now(), plug.id);
+      audit(session.username, "smart_plug.power", plug.id, { deviceId: device.id, enercareDeviceId: plug.enercare_device_id, control: wanted, result: response.result || null });
+      return json(res, 200, { smartPlug: smartPlugDto(db.prepare("SELECT * FROM smart_plugs WHERE id = ?").get(plug.id)), result: response.result || wanted });
+    }
+    if (req.method === "PUT" && smartPlugMatch) {
+      if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 등록은 시스템 또는 운영 관리자만 할 수 있습니다." });
+      const body = await readJson(req);
+      const enercareDeviceId = String(body.enercareDeviceId || "").trim().slice(0, 200);
+      const lowGroupId = String(body.lowGroupId || "").trim().slice(0, 80);
+      const subGroupId = String(body.subGroupId || "").trim().slice(0, 80);
+      const displayName = String(body.displayName || device.display_name).trim().slice(0, 120);
+      if (!enercareDeviceId) return json(res, 400, { error: "EnerCare 장치 ID를 선택하거나 입력해 주세요." });
+      const timestamp = now();
+      if (plug) db.prepare("UPDATE smart_plugs SET enercare_device_id=?, low_group_id=?, sub_group_id=?, display_name=?, connection_status=NULL, power_status=NULL, last_synced_at=NULL, last_error=NULL, updated_at=? WHERE id=?")
+        .run(enercareDeviceId, lowGroupId, subGroupId, displayName, timestamp, plug.id);
+      else db.prepare("INSERT INTO smart_plugs (id, device_id, enercare_device_id, low_group_id, sub_group_id, display_name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(crypto.randomUUID(), device.id, enercareDeviceId, lowGroupId, subGroupId, displayName, session.username, timestamp, timestamp);
+      const saved = db.prepare("SELECT * FROM smart_plugs WHERE device_id = ?").get(device.id);
+      audit(session.username, "smart_plug.save", saved.id, { deviceId: device.id, enercareDeviceId, lowGroupId, subGroupId });
+      return json(res, 200, { smartPlug: smartPlugDto(saved) });
+    }
+    if (req.method === "DELETE" && smartPlugMatch) {
+      if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 삭제는 시스템 또는 운영 관리자만 할 수 있습니다." });
+      if (!plug) return json(res, 404, { error: "이 장비에 등록된 스마트플러그가 없습니다." });
+      db.prepare("DELETE FROM smart_plugs WHERE id = ?").run(plug.id);
+      audit(session.username, "smart_plug.delete", plug.id, { deviceId: device.id });
+      return json(res, 200, { ok: true });
+    }
+  }
+
   if (req.method === "POST" && url.pathname === "/api/releases/upload") {
     const session = requireAdmin(req, res, true);
     if (!session) return;
     if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const fileName = path.basename(decodeURIComponent(String(req.headers["x-file-name"] || "")));
-    const match = /^(UME-release|Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-([0-9]+(?:\.[0-9]+){1,3})(?:\+[^\\/]+)?\.exe$/i.exec(fileName);
-    if (!match) return json(res, 400, { error: "파일명은 UME-release-{버전}.exe 또는 Funnet.Gwanak.Agent-{버전}.exe 형식이어야 합니다." });
-    if (db.prepare("SELECT id FROM releases WHERE version = ?").get(match[2])) {
-      return json(res, 409, { error: "이미 등록된 UME 버전입니다." });
+    const match = /^(UME-release|Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-([0-9]+(?:\.[0-9]+){1,3})(?:\+[^\\/]+)?\.exe$/i.exec(fileName);
+    if (!match) return json(res, 400, { error: "파일명은 UME-release-{버전}.exe 또는 funnet-agent-setup-{버전}.exe 형식이어야 합니다." });
+    const isAgentRelease = isAgentReleaseName(fileName);
+    const requestedRegionId = String(req.headers["x-region-id"] || "").trim();
+    if (isAgentRelease && !requestedRegionId) return json(res, 400, { error: "Agent 설치 파일은 대상 지역을 선택해야 합니다." });
+    const regionId = isAgentRelease ? requestedRegionId : null;
+    const region = regionId ? db.prepare("SELECT id, name FROM regions WHERE id = ?").get(regionId) : null;
+    if (regionId && !region) return json(res, 400, { error: "대상 지역을 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && regionId !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 등록할 수 있습니다." });
+    if (db.prepare("SELECT id FROM releases WHERE version = ? AND file_name = ? AND ((region_id = ?) OR (region_id IS NULL AND ? IS NULL))").get(match[2], fileName, regionId, regionId)) {
+      return json(res, 409, { error: "해당 지역에 같은 버전의 파일이 이미 등록되어 있습니다." });
     }
     const id = crypto.randomUUID();
     const storedName = `${id}.exe`;
     const destination = path.join(releaseDir, storedName);
     const saved = await saveUpload(req, destination);
     const timestamp = now();
-    db.prepare("INSERT INTO releases (id, version, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, match[2], fileName, destination, saved.size, saved.sha256, session.username, timestamp);
-    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(fileName);
+    db.prepare("INSERT INTO releases (id, version, region_id, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, match[2], regionId, fileName, destination, saved.size, saved.sha256, session.username, timestamp);
     let removedOlderAgentReleases = 0;
     if (isAgentRelease) {
-      const older = db.prepare("SELECT id, file_path, version FROM releases WHERE id <> ?").all(id)
+      const older = db.prepare("SELECT id, file_path, version FROM releases WHERE id <> ? AND region_id = ?").all(id, regionId)
         .filter((item) => compareReleaseVersions(item.version, match[2]) < 0)
-        .filter((item) => /agent/i.test(String(db.prepare("SELECT file_name FROM releases WHERE id = ?").get(item.id)?.file_name || "")));
+        .filter((item) => isAgentReleaseName(String(db.prepare("SELECT file_name FROM releases WHERE id = ?").get(item.id)?.file_name || "")));
       for (const item of older) {
         db.prepare("DELETE FROM commands WHERE type = 'agent.package.download' AND status IN ('pending','delivered') AND payload_json LIKE ?").run(`%${item.id}%`);
         db.prepare("DELETE FROM releases WHERE id = ?").run(item.id);
@@ -850,8 +1305,20 @@ async function handleApi(req, res, url) {
         removedOlderAgentReleases += 1;
       }
     }
-    audit(session.username, "release.upload", id, { version: match[2], fileName, ...saved, removedOlderAgentReleases });
-    return json(res, 201, { release: { id, version: match[2], fileName, sizeBytes: saved.size, sha256: saved.sha256, createdAt: timestamp }, removedOlderAgentReleases });
+    audit(session.username, "release.upload", id, { version: match[2], fileName, regionId, ...saved, removedOlderAgentReleases });
+    return json(res, 201, { release: releaseDto({ id, version: match[2], file_name: fileName, size_bytes: saved.size, sha256: saved.sha256, region_id: regionId, region_name: region?.name, created_by: session.username, created_at: timestamp }), removedOlderAgentReleases });
+  }
+
+  const releaseInstallerDownloadMatch = url.pathname.match(/^\/api\/releases\/([a-f0-9-]+)\/download$/i);
+  if (req.method === "GET" && releaseInstallerDownloadMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseInstallerDownloadMatch[1]);
+    if (!release || !fs.existsSync(release.file_path)) return json(res, 404, { error: "배포 파일을 찾을 수 없습니다." });
+    if (!isAgentReleaseName(release.file_name)) return json(res, 400, { error: "Agent 설치 파일만 내려받을 수 있습니다." });
+    if (sameRegionOnly(session) && release.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 내려받을 수 있습니다." });
+    audit(session.username, "release.download", release.id, { version: release.version, regionId: release.region_id });
+    return streamRelease(res, release);
   }
 
   const releaseDownloadMatch = url.pathname.match(/^\/api\/agent\/releases\/([a-f0-9-]+)\/download$/i);
@@ -860,14 +1327,8 @@ async function handleApi(req, res, url) {
     if (!device) return;
     const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseDownloadMatch[1]);
     if (!release || !fs.existsSync(release.file_path)) return json(res, 404, { error: "배포 파일을 찾을 수 없습니다." });
-    res.writeHead(200, {
-      "Content-Type": "application/octet-stream",
-      "Content-Length": release.size_bytes,
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(release.file_name)}`,
-      "X-Content-Type-Options": "nosniff",
-      "Cache-Control": "private, no-store",
-    });
-    return fs.createReadStream(release.file_path).pipe(res);
+    if (release.region_id && release.region_id !== device.region_id) return json(res, 403, { error: "다른 지역의 Agent 설치 파일은 내려받을 수 없습니다." });
+    return streamRelease(res, release);
   }
 
   const releaseDistributeMatch = url.pathname.match(/^\/api\/releases\/([a-f0-9-]+)\/distribute$/i);
@@ -879,21 +1340,31 @@ async function handleApi(req, res, url) {
     if (!release) return json(res, 404, { error: "배포 파일을 찾을 수 없습니다." });
     const body = await readJson(req);
     const requestedIds = Array.isArray(body.deviceIds) ? body.deviceIds.map(String) : [];
-    const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
+    if (sameRegionOnly(session) && release.region_id && release.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 배포할 수 있습니다." });
+    const releaseScope = release.region_id ? " AND region_id = ?" : "";
+    const roleScope = sameRegionOnly(session) ? " AND region_id = ?" : "";
+    const scopeArgs = [...(release.region_id ? [release.region_id] : []), ...(sameRegionOnly(session) ? [session.regionId] : [])];
     const candidateDevices = requestedIds.length
-      ? db.prepare(`SELECT id FROM devices WHERE approved = 1${scope} AND id IN (${requestedIds.map(() => "?").join(",")})`).all(...(sameRegionOnly(session) ? [session.regionId] : []), ...requestedIds)
-      : db.prepare(`SELECT id FROM devices WHERE approved = 1${scope}`).all(...(sameRegionOnly(session) ? [session.regionId] : []));
-    const commandType = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.file_name) ? "agent.package.download" : "ume.package.download";
-    const requiredCapability = commandType === "agent.package.download" ? "agentUpdate" : "ume";
-    const devices = candidateDevices.filter((device) => deviceHasCapability(device.id, requiredCapability));
+      ? db.prepare(`SELECT id FROM devices WHERE approved = 1${releaseScope}${roleScope} AND id IN (${requestedIds.map(() => "?").join(",")})`).all(...scopeArgs, ...requestedIds)
+      : db.prepare(`SELECT id FROM devices WHERE approved = 1${releaseScope}${roleScope}`).all(...scopeArgs);
+    const isAgentRelease = isAgentReleaseName(release.file_name);
+    const commandType = isAgentRelease ? "agent.package.download" : "ume.package.download";
+    const devices = candidateDevices.filter((device) => deviceHasCapability(device.id, isAgentRelease ? "agentUpdate" : "ume"));
+    // 구버전 Agent(1.3.x 포함)는 표준화된 funnet-agent-setup 이름을
+    // 허용하지 않고 Funnet.Gwanak.Agent 접두사만 인식한다. 실제 다운로드는
+    // releaseId로 처리되므로, 명령에 전달하는 이름만 하위 호환 이름으로
+    // 고정해 구버전 장비도 업데이트할 수 있게 한다.
+    const distributionFileName = isAgentRelease
+      ? `Funnet.Gwanak.Agent-${release.version}.exe`
+      : release.file_name;
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
     const createdAt = now();
     for (const device of devices) insert.run(crypto.randomUUID(), device.id, commandType, JSON.stringify({
-      releaseId: release.id, version: release.version, fileName: release.file_name,
+      releaseId: release.id, version: release.version, fileName: distributionFileName,
       sizeBytes: release.size_bytes, sha256: release.sha256,
       downloadPath: `/api/agent/releases/${release.id}/download`,
     }), createdAt);
-    audit(session.username, "release.distribute", release.id, { version: release.version, deviceCount: devices.length });
+    audit(session.username, "release.distribute", release.id, { version: release.version, regionId: release.region_id, deviceCount: devices.length });
     return json(res, 202, { queued: devices.length });
   }
 
@@ -961,7 +1432,7 @@ async function handleApi(req, res, url) {
     if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseDeleteMatch[1]);
     if (!release) return json(res, 404, { error: "업데이트 파일을 찾을 수 없습니다." });
-    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-gwanak-agent-setup)-/i.test(release.file_name);
+    const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.file_name);
     const pending = db.prepare("SELECT COUNT(*) AS count FROM commands WHERE type IN ('agent.package.download','ume.package.download') AND status = 'pending' AND payload_json LIKE ?").get(`%${release.id}%`);
     if (Number(pending?.count || 0) > 0 && !isAgentRelease) return json(res, 409, { error: "UME 배포 대기 중인 업데이트는 삭제할 수 없습니다." });
     let removedCommands = 0;
@@ -1033,6 +1504,32 @@ async function handleApi(req, res, url) {
     return json(res, 202, { commandId, status: "pending" });
   }
 
+  const remoteCommandMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/remote\/(screen|key|click)$/i);
+  if (req.method === "POST" && remoteCommandMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!assertRole(session, res, ["admin", "system_manager"])) return;
+    const device = db.prepare("SELECT id, region_id, approved FROM devices WHERE id = ?").get(remoteCommandMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 원격 제어할 수 있습니다." });
+    if (!device.approved) return json(res, 400, { error: "승인된 장비만 원격 제어할 수 있습니다." });
+    const kind = remoteCommandMatch[2].toLowerCase();
+    let type = "remote.screen.capture"; let payload = {};
+    if (kind === "key") {
+      const body = await readJson(req); const key = String(body.key || "").toUpperCase();
+      if (!["LEFT", "RIGHT", "UP", "DOWN", "ENTER", "ESC", "TAB", "SPACE"].includes(key)) return json(res, 400, { error: "허용되지 않은 키입니다." });
+      type = "remote.input.key"; payload = { key };
+    } else if (kind === "click") {
+      const body = await readJson(req); const x = Number(body.x); const y = Number(body.y);
+      if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x > 10000 || y > 10000) return json(res, 400, { error: "화면 좌표가 올바르지 않습니다." });
+      type = "remote.input.click"; payload = { x, y };
+    }
+    const commandId = crypto.randomUUID();
+    db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)").run(commandId, device.id, type, JSON.stringify(payload), now());
+    audit(session.username, type, device.id, { commandId, payload });
+    return json(res, 202, { commandId, status: "pending", warning: "UAC 보안 데스크톱은 원격 입력 대상이 아닙니다." });
+  }
+
   const displayStatusMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/display\/status$/i);
   if (req.method === "GET" && displayStatusMatch) {
     const session = requireAdmin(req, res);
@@ -1052,6 +1549,55 @@ async function handleApi(req, res, url) {
     return json(res, 200, { display, checkedAt, lastSeenAt: device.last_seen_at, online: Number.isFinite(Date.parse(device.last_seen_at || "")) && Date.now() - Date.parse(device.last_seen_at) < 120000 });
   }
 
+  if (req.method === "POST" && url.pathname === "/api/smart-plugs/bulk/power") {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canManageSmartPlugs(session)) return json(res, 403, { error: "스마트플러그 제어는 시스템 또는 운영 관리자만 할 수 있습니다." });
+    const body = await readJson(req);
+    if (typeof body.on !== "boolean") return json(res, 400, { error: "on 값은 true 또는 false여야 합니다." });
+    const requestedRegionId = String(body.regionId || "all").trim() || "all";
+    if (requestedRegionId !== "all" && !db.prepare("SELECT id FROM regions WHERE id = ?").get(requestedRegionId)) return json(res, 400, { error: "선택한 지역을 찾을 수 없습니다." });
+    const hasDeviceIds = Array.isArray(body.deviceIds);
+    const ids = hasDeviceIds ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
+    const filters = ["devices.approved = 1", "smart_plugs.connection_status = 'online'"];
+    const args = [];
+    if (requestedRegionId !== "all") { filters.push("devices.region_id = ?"); args.push(requestedRegionId); }
+    if (hasDeviceIds) {
+      if (!ids.length) return json(res, 200, { targeted: 0, succeeded: 0, failed: 0, failures: [] });
+      filters.push(`devices.id IN (${ids.map(() => "?").join(",")})`); args.push(...ids);
+    }
+    const plugs = db.prepare(`SELECT smart_plugs.*, devices.region_id FROM smart_plugs JOIN devices ON devices.id = smart_plugs.device_id WHERE ${filters.join(" AND ")}`).all(...args);
+    const control = body.on ? "ON" : "OFF";
+    const result = await controlSmartPlugs(plugs, control);
+    audit(session.username, "smart_plug.bulk.power", "ALL", {
+      control,
+      regionId: requestedRegionId,
+      targeted: plugs.length,
+      succeeded: result.succeeded.length,
+      failed: result.failed.length,
+    });
+    return json(res, 200, {
+      targeted: plugs.length,
+      succeeded: result.succeeded.length,
+      failed: result.failed.length,
+      failures: result.failed.map((item) => ({ deviceId: item.deviceId, error: item.error })),
+    });
+  }
+
+  const selectedBulkMatch = url.pathname.match(/^\/api\/(health|ume)\/bulk$/i);
+  if (req.method === "POST" && selectedBulkMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const body = await readJson(req); const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
+    const scope = sameRegionOnly(session) ? " AND region_id = ?" : ""; const args = sameRegionOnly(session) ? [session.regionId] : [];
+    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved=1 AND julianday(last_seen_at)>=julianday('now','-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved=1 AND julianday(last_seen_at)>=julianday('now','-120 seconds')${scope}`).all(...args);
+    const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, '{}', ?)"); const type = selectedBulkMatch[1] === "health" ? "health.probe" : (body.action === "stop" ? "ume.hide" : "ume.activate");
+    const supportedRows = type === "health.probe" ? rows : rows.filter((row) => deviceHasCapability(row.id, "ume"));
+    const commandIds = supportedRows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, type, now()); if (type === "health.probe") { try { if (JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id=?").get(row.id)?.last_health_json || "{}").display?.enabled) insert.run(crypto.randomUUID(), row.id, "display.status", "{}", now()); } catch {} } return id; });
+    audit(session.username, type + ".bulk", "ALL", { queued: commandIds.length }); return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
+  }
+
   const displayBulkMatch = url.pathname.match(/^\/api\/display\/bulk\/(power|input)$/i);
   if (req.method === "POST" && displayBulkMatch) {
     const session = requireAdmin(req, res, true);
@@ -1064,8 +1610,7 @@ async function handleApi(req, res, url) {
     const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
     const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
     const args = sameRegionOnly(session) ? [session.regionId] : [];
-    const candidates = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
-    const rows = candidates;
+    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
     const enabledRows = rows.filter((row) => { try { const health = JSON.parse(db.prepare("SELECT last_health_json FROM devices WHERE id = ?").get(row.id)?.last_health_json || "{}"); return Boolean(health.display?.enabled) && (kind !== "input" || deviceSupportsDisplayInput(health, payload.input)); } catch { return false; } });
     const commandIds = enabledRows.map((row) => { clearPendingDisplayCommands(row.id); const id = crypto.randomUUID(); insert.run(id, row.id, `display.${kind}`, JSON.stringify(payload), now()); return { deviceId: row.id, commandId: id }; });
@@ -1082,11 +1627,10 @@ async function handleApi(req, res, url) {
     const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
     const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
     const args = sameRegionOnly(session) ? [session.regionId] : [];
-    const candidates = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
-    const rows = candidates.filter((row) => deviceHasCapability(row.id, "ivision"));
+    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
     const type = `ivision.${ivisionBulkMatch[1].toLowerCase()}`;
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, '{}', ?)");
-    const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, type, now()); return { deviceId: row.id, commandId: id }; });
+    const commandIds = rows.filter((row) => deviceHasCapability(row.id, "ivision")).map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, type, now()); return { deviceId: row.id, commandId: id }; });
     audit(session.username, type, "ALL", { queued: commandIds.length });
     return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
   }
@@ -1100,10 +1644,9 @@ async function handleApi(req, res, url) {
     const ids = Array.isArray(body.deviceIds) ? body.deviceIds.filter((id) => /^[a-f0-9-]{20,80}$/i.test(String(id))) : [];
     const scope = sameRegionOnly(session) ? " AND region_id = ?" : "";
     const args = sameRegionOnly(session) ? [session.regionId] : [];
-    const candidates = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
-    const rows = candidates.filter((row) => deviceHasCapability(row.id, "windowsShutdown"));
+    const rows = ids.length ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope} AND id IN (${ids.map(() => "?").join(",")})`).all(...args, ...ids) : db.prepare(`SELECT id FROM devices WHERE approved = 1 AND julianday(last_seen_at) >= julianday('now', '-120 seconds')${scope}`).all(...args);
     const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'windows.shutdown', '{}', ?)");
-    const commandIds = rows.map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, now()); return { deviceId: row.id, commandId: id }; });
+    const commandIds = rows.filter((row) => deviceHasCapability(row.id, "windowsShutdown")).map((row) => { const id = crypto.randomUUID(); insert.run(id, row.id, now()); return { deviceId: row.id, commandId: id }; });
     audit(session.username, "windows.shutdown.bulk", "ALL", { queued: commandIds.length });
     return json(res, 202, { queued: commandIds.length, commands: commandIds, status: "pending" });
   }
@@ -1174,7 +1717,7 @@ async function handleApi(req, res, url) {
     if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
     if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 실행할 수 있습니다." });
     if (!device.approved) return json(res, 400, { error: "승인된 장비만 실행할 수 있습니다." });
-    if (!deviceHasCapability(device.id, "ume")) return json(res, 409, { error: "이 장비는 UME 실행을 지원하지 않습니다." });
+    if (!deviceHasCapability(device.id, "ume")) return json(res, 409, { error: "이 장비는 UME 제어를 지원하지 않습니다." });
     const body = await readJson(req);
     const commandId = crypto.randomUUID();
     const scheduleId = body.scheduleId ? String(body.scheduleId).slice(0, 80) : null;
@@ -1183,6 +1726,22 @@ async function handleApi(req, res, url) {
       .run(commandId, device.id, JSON.stringify({ scheduleId, runKey, deviceOnly: true }), now());
     audit(session.username, "device.run_ume", device.id, { commandId, scheduleId, displayName: device.display_name });
     return json(res, 202, { commandId, queued: 1, status: "pending" });
+  }
+
+  const umeStopMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/ume\/stop$/i);
+  if (req.method === "POST" && umeStopMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const device = db.prepare("SELECT id, region_id, approved FROM devices WHERE id = ?").get(umeStopMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 실행할 수 있습니다." });
+    if (!device.approved) return json(res, 400, { error: "승인된 장비만 실행할 수 있습니다." });
+    if (!deviceHasCapability(device.id, "ume")) return json(res, 409, { error: "이 장비는 UME 제어를 지원하지 않습니다." });
+    const commandId = crypto.randomUUID();
+    db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'ume.hide', '{}', ?)").run(commandId, device.id, now());
+    audit(session.username, "device.ume_stop", device.id, { commandId });
+    return json(res, 202, { commandId, status: "pending" });
   }
 
   const ivisionMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/ivision\/(stop|restart)$/i);
@@ -1230,6 +1789,7 @@ export const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   try {
     if (req.method === "GET" && url.pathname === "/healthz") return json(res, 200, { ok: true, version: appVersion, serverTime: now() });
+    if (url.pathname.startsWith("/conn/")) return await handleEnercareCallback(req, res, url);
     if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
     return serveStatic(req, res, url);
   } catch (error) {
@@ -1259,10 +1819,9 @@ function listSchedules() {
 }
 
 function enqueueUmeActivate(scheduleId, runKey, regionIds = []) {
-  const candidates = regionIds?.length
+  const devices = regionIds?.length
     ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND region_id IN (${regionIds.map(() => "?").join(",")})`).all(...regionIds)
     : db.prepare("SELECT id FROM devices WHERE approved = 1").all();
-  const devices = candidates.filter((device) => deviceHasCapability(device.id, "ume"));
   const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'ume.activate', ?, ?)");
   const timestamp = now();
   for (const device of devices) insert.run(crypto.randomUUID(), device.id, JSON.stringify({ scheduleId, runKey }), timestamp);
