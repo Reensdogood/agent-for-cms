@@ -195,6 +195,12 @@ tbody tr:hover { background: rgba(0,113,227,.025); }
 #addScheduleButton { min-width: 7.8rem; white-space: nowrap; }
 .region-filter { min-height: 2.65rem; border: 1px solid var(--line); border-radius: .8rem; padding: .55rem .8rem; background: white; color: var(--ink); font-weight: 650; }
 .schedule-regions { margin: .3rem 0 0; color: var(--blue); font-size: .78rem; font-weight: 650; }
+.schedule-target { margin: .22rem 0 0; color: var(--muted); font-size: .75rem; }
+.schedule-device-picker { display: inline-flex; margin-top: .8rem; }
+.schedule-device-summary { margin: .5rem 0 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+.schedule-device-choices { display: grid; gap: .55rem; max-height: 20rem; overflow: auto; padding-right: .2rem; }
+.schedule-device-choice { display: grid; grid-template-columns: auto 1fr; gap: .35rem .65rem; align-items: center; padding: .72rem .8rem; border: 1px solid rgba(60,60,67,.12); border-radius: .9rem; background: var(--surface); }
+.schedule-device-choice small { grid-column: 2; color: var(--muted); font-size: .74rem; }
 .region-picker { margin: .5rem 0 1rem; }
 .field-hint { display: block; margin-top: .5rem; color: var(--muted); font-size: .72rem; }
 .release-actions { display: flex; gap: .5rem; align-items: center; }

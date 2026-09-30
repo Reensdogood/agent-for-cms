@@ -6,6 +6,7 @@ let csrfToken = "";
 let devices = [];
 const selectedDeviceIds = new Set();
 let schedules = [];
+let scheduleDeviceIds = [];
 let releases = [];
 let releaseFilter = "all";
 let selectedRegionId = "all";
@@ -428,6 +429,10 @@ function openUser(user = null) {
 }
 
 const dayNames = ["일", "월", "화", "수", "목", "금", "토"];
+const scheduleActionLabels = {
+  "ivision.stop": "I-Vision 종료", "ivision.restart": "I-Vision 실행", "ume.activate": "화상회의 (UME) 실행",
+  "smart_plug.on": "스마트플러그 ON", "smart_plug.off": "스마트플러그 OFF", "windows.shutdown": "Windows 종료",
+};
 function renderSchedules() {
   const list = $("#scheduleList");
   if (!schedules.length) {
@@ -441,7 +446,8 @@ function renderSchedules() {
     const top = document.createElement("div");
     top.className = "schedule-top";
     const copy = document.createElement("div");
-    copy.append(textElement("span", "schedule-state", schedule.enabled ? "사용 중" : "중지됨"), textElement("h3", "", schedule.name), textElement("p", "schedule-regions", schedule.regionNames?.length ? schedule.regionNames.join(" · ") : "전체 지역"));
+    const target = schedule.deviceNames?.length ? schedule.deviceNames.join(" · ") : (schedule.regionNames?.length ? `${schedule.regionNames.join(" · ")} 전체` : "전체 지역");
+    copy.append(textElement("span", "schedule-state", schedule.enabled ? "사용 중" : "중지됨"), textElement("h3", "", schedule.name), textElement("p", "schedule-regions", schedule.actionLabel || scheduleActionLabels[schedule.actionType] || "화상회의 (UME) 실행"), textElement("p", "schedule-target", target));
     const edit = textElement("button", "icon-button", "•••");
     edit.setAttribute("aria-label", `${schedule.name} 수정`);
     edit.addEventListener("click", () => openSchedule(schedule));
@@ -450,10 +456,14 @@ function renderSchedules() {
     const days = textElement("p", "schedule-days", schedule.days.map((day) => dayNames[day]).join(" · "));
     const actions = document.createElement("div");
     actions.className = "schedule-actions";
-    const run = textElement("button", "secondary", "전체 실행");
+    const run = textElement("button", "secondary", "지금 실행");
     run.addEventListener("click", async () => {
-      if (!await confirmAction("UME를 지금 실행할까요?", "승인된 모든 온라인 장비에 전체화면 실행 명령을 전송합니다.", "실행")) return;
-      try { const result = await api(`/api/schedules/${schedule.id}/run`, { method: "POST" }); toast(`${result.queued}대에 실행 명령을 보냈습니다.`); }
+      const actionLabel = schedule.actionLabel || scheduleActionLabels[schedule.actionType] || "화상회의 (UME) 실행";
+      if (!await confirmAction(`${actionLabel}을 지금 실행할까요?`, `${target}에 저장된 스케줄 작업을 실행합니다.`, "실행")) return;
+      try {
+        const result = await api(`/api/schedules/${schedule.id}/run`, { method: "POST" });
+        toast(schedule.actionType?.startsWith("smart_plug.") ? `등록된 Online 스마트플러그 ${result.targeted}대 제어를 완료했습니다.` : `${result.queued}대에 실행 명령을 보냈습니다.`);
+      }
       catch (error) { toast(error.message, "error"); }
     });
     const toggle = textElement("button", "secondary", schedule.enabled ? "사용 해제" : "사용");
@@ -482,11 +492,38 @@ function openSchedule(schedule = null) {
   $("#scheduleId").value = schedule?.id || "";
   $("#scheduleName").value = schedule?.name || "";
   $("#scheduleTime").value = schedule?.localTime || "09:00";
+  $("#scheduleActionType").value = schedule?.actionType || "ume.activate";
   $("#scheduleEnabled").checked = schedule?.enabled ?? true;
+  scheduleDeviceIds = [...(schedule?.deviceIds || [])];
   const regionBox = $("#scheduleRegions");
-  regionBox.replaceChildren(...regionInfo.regions.map((region) => { const label = document.createElement("label"); const input = document.createElement("input"); input.type = "checkbox"; input.name = "scheduleRegion"; input.value = region.id; input.checked = schedule?.regionIds?.length ? schedule.regionIds.includes(region.id) : true; label.append(input, region.name); return label; }));
+  regionBox.replaceChildren(...regionInfo.regions.map((region) => { const label = document.createElement("label"); const input = document.createElement("input"); input.type = "checkbox"; input.name = "scheduleRegion"; input.value = region.id; input.checked = schedule?.regionIds?.length ? schedule.regionIds.includes(region.id) : true; input.addEventListener("change", renderScheduleDeviceSummary); label.append(input, region.name); return label; }));
   $$('input[name="day"]').forEach((input) => { input.checked = schedule ? schedule.days.includes(Number(input.value)) : [1, 2, 3, 4, 5].includes(Number(input.value)); });
+  renderScheduleDeviceSummary();
   $("#scheduleDialog").showModal();
+}
+
+function scheduleSelectedRegions() { return $$('input[name="scheduleRegion"]:checked').map((input) => input.value); }
+function scheduleEligibleDevices() {
+  const regionIds = scheduleSelectedRegions();
+  return devices.filter((device) => device.approved && (!regionIds.length || regionIds.includes(device.regionId)));
+}
+function renderScheduleDeviceSummary() {
+  const eligible = scheduleEligibleDevices();
+  scheduleDeviceIds = scheduleDeviceIds.filter((id) => eligible.some((device) => device.id === id));
+  const names = eligible.filter((device) => scheduleDeviceIds.includes(device.id)).map((device) => device.displayName);
+  $("#scheduleDeviceSummary").textContent = names.length ? `${names.length}곳 선택 · ${names.join(" · ")}` : "선택하지 않음 · 대상 지역 전체 적용";
+}
+function openScheduleDevicePicker() {
+  const choices = $("#scheduleDeviceChoices");
+  const eligible = scheduleEligibleDevices();
+  scheduleDeviceIds = scheduleDeviceIds.filter((id) => eligible.some((device) => device.id === id));
+  if (!eligible.length) choices.replaceChildren(textElement("p", "empty", "선택한 지역에 등록·승인된 경로당이 없습니다."));
+  else choices.replaceChildren(...eligible.map((device) => {
+    const label = document.createElement("label"); label.className = "schedule-device-choice";
+    const input = document.createElement("input"); input.type = "checkbox"; input.value = device.id; input.checked = scheduleDeviceIds.includes(device.id);
+    label.append(input, textElement("span", "", device.displayName), textElement("small", "", device.regionName || "")); return label;
+  }));
+  $("#scheduleDeviceDialog").showModal();
 }
 
 function renderReleases() {
@@ -721,9 +758,17 @@ $("#scheduleForm").addEventListener("submit", async (event) => {
   const id = $("#scheduleId").value;
   const regionIds = $$('input[name="scheduleRegion"]:checked').map((input) => input.value);
   if (!regionIds.length) { event.preventDefault(); toast("대상 지역을 하나 이상 선택해 주세요.", "error"); return; }
-  const body = JSON.stringify({ name: $("#scheduleName").value, localTime: $("#scheduleTime").value, regionIds, days: $$('input[name="day"]:checked').map((input) => Number(input.value)), enabled: $("#scheduleEnabled").checked });
+  const body = JSON.stringify({ name: $("#scheduleName").value, actionType: $("#scheduleActionType").value, localTime: $("#scheduleTime").value, regionIds, deviceIds: scheduleDeviceIds, days: $$('input[name="day"]:checked').map((input) => Number(input.value)), enabled: $("#scheduleEnabled").checked });
   try { await api(id ? `/api/schedules/${id}` : "/api/schedules", { method: id ? "PUT" : "POST", body }); $("#scheduleDialog").close(); await loadSchedules(); toast("스케줄을 저장했습니다."); }
   catch (error) { handleError(error); }
+});
+
+$("#scheduleDevicePickerButton").addEventListener("click", openScheduleDevicePicker);
+$("#scheduleDeviceDialog").addEventListener("close", () => {
+  const dialog = $("#scheduleDeviceDialog");
+  if (dialog.returnValue === "cancel") return;
+  scheduleDeviceIds = $$("input[type=checkbox]:checked", $("#scheduleDeviceChoices")).map((input) => input.value);
+  renderScheduleDeviceSummary();
 });
 
 $("#releaseFile").addEventListener("change", () => { const file = $("#releaseFile").files[0]; $("#uploadReleaseButton").disabled = !file; $("#selectedReleaseFile").textContent = file ? `선택 파일: ${file.name}` : "선택된 파일 없음"; });
