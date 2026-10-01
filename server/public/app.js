@@ -354,7 +354,16 @@ async function loadSystemStatus() {
   $("#systemOnlineCount").textContent = `온라인 ${devices.filter((device) => device.status === "online").length}`;
   $("#systemFailedCount").textContent = failed.length;
   $("#systemPendingCount").textContent = pending.length;
-  const rows = failed.map((command) => { const row = document.createElement("tr"); const detail = command.result?.error || (command.status === "failed" ? "명령 실행 실패" : "응답 없음"); row.append(tableCell(command.deviceName, "device-name"), tableCell(command.status === "failed" ? "실패" : "응답 없음"), tableCell(command.type), tableCell(detail), tableCell(formatTime(command.completedAt || command.createdAt))); return row; });
+  const rows = failed.map((command) => {
+    const row = document.createElement("tr");
+    const failure = command.result?.result || command.result || {};
+    const serialStage = failure.serialDiagnostics?.stage;
+    const detail = failure.error
+      ? `${failure.error}${serialStage ? ` · USB ${serialStage}` : ""}`
+      : (command.status === "failed" ? "명령 실행 실패" : "응답 없음");
+    row.append(tableCell(command.deviceName, "device-name"), tableCell(command.status === "failed" ? "실패" : "응답 없음"), tableCell(command.type), tableCell(detail), tableCell(formatTime(command.completedAt || command.createdAt)));
+    return row;
+  });
   $("#systemErrorRows").replaceChildren(...rows); $("#systemErrorEmpty").hidden = rows.length > 0;
 }
 
