@@ -42,7 +42,7 @@ $env:FUNNET_ANDROID_ENROLLMENT_KEY = "관리 서버에서 확인한 Funnet 지�
 Remove-Item Env:FUNNET_ANDROID_ENROLLMENT_KEY
 ```
 
-결과는 `dist-android-funnet-test/funnet-tv-controller-0.5.3-funnet-test.apk`이다. 이 배포본은 서버 `https://agent.funnet.kr`, Funnet 지역, TV Device ID `0`이 고정되어 서버 주소와 등록키를 리모컨으로 입력하지 않는다. 등록키가 APK에 포함되는 현장 시험 전용 파일이므로 외부 공개 저장소나 메신저에 배포하지 않는다. 0.5.3부터 USB 진단에 앱 내장 드라이버 목록, Android USB Host 기능, 마지막 attach/detach 이벤트와 접근 가능한 Linux sysfs USB 장치 목록이 함께 포함된다.
+결과는 `dist-android-funnet-test/funnet-tv-controller-0.5.4-funnet-test.apk`이다. 이 배포본은 서버 `https://agent.funnet.kr`, Funnet 지역, TV Device ID `0`이 고정되어 서버 주소와 등록키를 리모컨으로 입력하지 않는다. 등록키가 APK에 포함되는 현장 시험 전용 파일이므로 외부 공개 저장소나 메신저에 배포하지 않는다. 0.5.3부터 USB 진단에 앱 내장 드라이버 목록, Android USB Host 기능, 마지막 attach/detach 이벤트와 접근 가능한 Linux sysfs USB 장치 목록이 함께 포함된다. 0.5.4부터 주기적인 USB 점검이 마지막 명령의 수신·포트 열기·송신·수신/타임아웃 기록을 덮어쓰지 않으며, 명령 ID와 단계별 이벤트 이력을 함께 보존한다.
 
 ## 3. Android 스틱 설치
 

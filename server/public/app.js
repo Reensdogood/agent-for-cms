@@ -273,8 +273,18 @@ function deviceRow(device) {
   actions.append(tv);
   if (isAndroidDevice) {
     const diagnostics = textElement("button", "small secondary", "USB 진단");
-    diagnostics.addEventListener("click", () => {
-      const value = device.serialDiagnostics || { stage: "not_reported", message: "아직 Android 앱에서 USB 진단 정보가 보고되지 않았습니다." };
+    diagnostics.addEventListener("click", async () => {
+      diagnostics.disabled = true;
+      let latestDevice = device;
+      try {
+        const result = await api("/api/devices");
+        latestDevice = (result.devices || []).find((item) => item.id === device.id) || device;
+      } catch (error) {
+        toast(`최신 USB 진단 조회 실패: ${error.message}`, "error");
+      } finally {
+        diagnostics.disabled = false;
+      }
+      const value = latestDevice.serialDiagnostics || { stage: "not_reported", message: "아직 Android 앱에서 USB 진단 정보가 보고되지 않았습니다." };
       const dialog = document.createElement("dialog");
       const form = document.createElement("form"); form.method = "dialog";
       form.append(textElement("p", "eyebrow", "ANDROID USB SERIAL"), textElement("h3", "", `${device.displayName} USB 진단`));

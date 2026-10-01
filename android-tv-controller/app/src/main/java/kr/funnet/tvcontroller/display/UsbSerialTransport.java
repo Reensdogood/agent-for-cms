@@ -50,7 +50,7 @@ public final class UsbSerialTransport implements SerialTransport {
             throw new DisplayException(DisplayErrorCode.USB_PERMISSION_REQUIRED,
                     "USB 접근 권한을 허용해 주세요: " + transport.name);
         }
-        UsbSerialDiagnostics.update("stage", "device_ready");
+        UsbSerialDiagnostics.ready();
         UsbSerialDiagnostics.update("portOpen", false);
         return transport.name + " · " + driver.getClass().getSimpleName();
     }
@@ -79,6 +79,7 @@ public final class UsbSerialTransport implements SerialTransport {
             discardInput();
             UsbSerialDiagnostics.update("permission", true);
             UsbSerialDiagnostics.update("portOpen", true);
+            UsbSerialDiagnostics.update("portOpenedAt", System.currentTimeMillis());
             UsbSerialDiagnostics.update("stage", "port_open");
         } catch (Exception error) {
             close();
@@ -112,7 +113,7 @@ public final class UsbSerialTransport implements SerialTransport {
         put(diagnostic, "devices", detected);
         put(diagnostic, "serialParameters", "9600 8N1 · flow control none");
         put(diagnostic, "platformDiagnostics", UsbPlatformDiagnostics.snapshot(context));
-        UsbSerialDiagnostics.replace(diagnostic);
+        UsbSerialDiagnostics.refreshUsb(diagnostic);
         return drivers;
     }
 
@@ -188,5 +189,6 @@ public final class UsbSerialTransport implements SerialTransport {
         port = null;
         connection = null;
         UsbSerialDiagnostics.update("portOpen", false);
+        UsbSerialDiagnostics.update("portClosedAt", System.currentTimeMillis());
     }
 }

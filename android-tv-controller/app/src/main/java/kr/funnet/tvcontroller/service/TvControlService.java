@@ -151,9 +151,13 @@ public final class TvControlService extends Service {
         }
         JSONObject envelope;
         try {
-            JSONObject result = execute(command.getString("type"), command.optJSONObject("payload"));
+            String type = command.getString("type");
+            UsbSerialDiagnostics.beginCommand(id, type);
+            JSONObject result = execute(type, command.optJSONObject("payload"));
+            UsbSerialDiagnostics.finishCommand(true);
             envelope = new JSONObject().put("success", true).put("result", result);
         } catch (Exception error) {
+            UsbSerialDiagnostics.finishCommand(false);
             JSONObject failure = new JSONObject().put("error", safeMessage(error));
             if (error instanceof DisplayException display) failure.put("code", display.code().name());
             failure.put("serialDiagnostics", UsbSerialDiagnostics.snapshot());
@@ -161,6 +165,8 @@ public final class TvControlService extends Service {
         }
         settings.rememberCompleted(id, envelope);
         server.complete(id, envelope);
+        server.heartbeat(usbName);
+        lastHeartbeat = System.currentTimeMillis();
     }
 
     private JSONObject execute(String type, JSONObject payload) throws Exception {
