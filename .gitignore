@@ -19,3 +19,6 @@ android-tv-controller/local.properties
 android-tv-controller/app/build/
 dist-android-poc/
 dist-android-funnet-test/
+dist-android-release-test/
+dist-runner-windows-test/
+dist-runner/
