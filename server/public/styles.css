@@ -173,7 +173,7 @@ tbody tr:hover { background: rgba(0,113,227,.025); }
 .bulk-control-group h3, .bulk-control-group p { margin: 0; }
 .bulk-control-group h3 { margin-top: .2rem; font-size: 1.05rem; }
 .bulk-control-group p:last-child { margin-top: .35rem; color: var(--muted); font-size: .76rem; }
-.bulk-display-actions { display: grid; grid-template-columns: repeat(4, auto); gap: .45rem; }
+.bulk-display-actions { display: flex; flex-wrap: nowrap; gap: .45rem; }
 .schedule-actions button { width: 100%; min-height: 2.35rem; padding-inline: .62rem; white-space: nowrap; font-size: .76rem; letter-spacing: -.02em; }
 .schedule-actions .danger { min-width: 0; }
 
@@ -195,6 +195,12 @@ tbody tr:hover { background: rgba(0,113,227,.025); }
 #addScheduleButton { min-width: 7.8rem; white-space: nowrap; }
 .region-filter { min-height: 2.65rem; border: 1px solid var(--line); border-radius: .8rem; padding: .55rem .8rem; background: white; color: var(--ink); font-weight: 650; }
 .schedule-regions { margin: .3rem 0 0; color: var(--blue); font-size: .78rem; font-weight: 650; }
+.schedule-target { margin: .22rem 0 0; color: var(--muted); font-size: .75rem; }
+.schedule-device-picker { display: inline-flex; margin-top: .8rem; }
+.schedule-device-summary { margin: .5rem 0 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+.schedule-device-choices { display: grid; gap: .55rem; max-height: 20rem; overflow: auto; padding-right: .2rem; }
+.schedule-device-choice { display: grid; grid-template-columns: auto 1fr; gap: .35rem .65rem; align-items: center; padding: .72rem .8rem; border: 1px solid rgba(60,60,67,.12); border-radius: .9rem; background: var(--surface); }
+.schedule-device-choice small { grid-column: 2; color: var(--muted); font-size: .74rem; }
 .region-picker { margin: .5rem 0 1rem; }
 .field-hint { display: block; margin-top: .5rem; color: var(--muted); font-size: .72rem; }
 .release-actions { display: flex; gap: .5rem; align-items: center; }
@@ -263,6 +269,7 @@ legend { color: #3a3a3c; font-size: .8rem; font-weight: 680; }
   .status-breakdown { grid-template-columns: 1fr; }
   .upload-panel { grid-template-columns: 1fr auto; }
   .upload-panel > div { grid-column: 1 / -1; }
+  .bulk-control-group { grid-template-columns: 1fr; gap: .75rem; }
 }
 @media (max-width: 760px) {
   .sidebar { width: min(17rem, 84vw); transform: translateX(-105%); transition: transform 260ms cubic-bezier(.2,.8,.3,1); box-shadow: 1rem 0 3rem rgba(0,0,0,.2); }
@@ -277,9 +284,8 @@ legend { color: #3a3a3c; font-size: .8rem; font-weight: 680; }
   .summary { grid-template-columns: 1fr 1fr; }
   .summary article { min-height: 7.7rem; }
   .upload-panel, .release-card, .setup-grid, .region-key-row, .schedule-actions { grid-template-columns: 1fr; }
-  .bulk-control-group { grid-template-columns: 1fr; gap: .75rem; }
   .device-bulk-panel { grid-template-columns: 1fr; }
-  .bulk-display-actions { grid-template-columns: repeat(2, 1fr); }
+  .bulk-display-actions { display: grid; grid-template-columns: repeat(2, 1fr); }
   .release-card .package-icon { display: none; }
   .integration-head { align-items: stretch; flex-direction: column; }
 }

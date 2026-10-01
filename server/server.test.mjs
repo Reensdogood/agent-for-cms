@@ -323,6 +323,8 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   });
   assert.equal(scheduleCreate.status, 201);
   const schedule = (await scheduleCreate.json()).schedule;
+  assert.equal(schedule.actionType, "ume.activate");
+  assert.equal(schedule.actionLabel, "화상회의 (UME) 실행");
   const scheduleRun = await fetch(`${base}/api/schedules/${schedule.id}/run`, {
     method: "POST", headers: { Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken },
   });
@@ -342,6 +344,44 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   const deviceRunBody = await deviceRunCommands.json();
   assert.equal(deviceRunBody.commands[0].type, "ume.activate");
   assert.equal(deviceRunBody.commands[0].payload.deviceOnly, true);
+
+  for (const command of deviceRunBody.commands) {
+    const complete = await fetch(`${base}/api/agent/commands/${command.id}/result`, {
+      method: "POST", headers: { Authorization: `Bearer ${registered.deviceToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ success: true }),
+    });
+    assert.equal(complete.status, 200);
+  }
+
+  for (const actionType of ["ivision.stop", "ivision.restart", "windows.shutdown"]) {
+    const create = await fetch(`${base}/api/schedules`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+      body: JSON.stringify({ name: `${actionType} 확인`, actionType, localTime: "10:00", days: [1], regionIds: [regionsBody.regions[0].id], deviceIds: [registered.deviceId], enabled: true }),
+    });
+    assert.equal(create.status, 201);
+    const created = (await create.json()).schedule;
+    assert.deepEqual(created.deviceNames, ["관악-001"]);
+    const run = await fetch(`${base}/api/schedules/${created.id}/run`, { method: "POST", headers: { Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken } });
+    assert.equal(run.status, 202);
+    assert.equal((await run.json()).queued, 1);
+    const commands = await fetch(`${base}/api/agent/commands`, { headers: { Authorization: `Bearer ${registered.deviceToken}` } });
+    const command = (await commands.json()).commands.find((item) => item.type === actionType);
+    assert.ok(command);
+    const complete = await fetch(`${base}/api/agent/commands/${command.id}/result`, {
+      method: "POST", headers: { Authorization: `Bearer ${registered.deviceToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ success: true }),
+    });
+    assert.equal(complete.status, 200);
+  }
+
+  const smartPlugSchedule = await fetch(`${base}/api/schedules`, {
+    method: "POST",
+    headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+    body: JSON.stringify({ name: "스마트플러그 OFF", actionType: "smart_plug.off", localTime: "10:30", days: [1], regionIds: [regionsBody.regions[0].id], deviceIds: [registered.deviceId], enabled: true }),
+  });
+  assert.equal(smartPlugSchedule.status, 201);
+  const smartPlugRun = await fetch(`${base}/api/schedules/${(await smartPlugSchedule.json()).schedule.id}/run`, { method: "POST", headers: { Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken } });
+  assert.equal(smartPlugRun.status, 202);
+  assert.deepEqual(await smartPlugRun.json(), { queued: 0, targeted: 1, succeeded: 1, failed: 0 });
 
   const scheduleDisable = await fetch(`${base}/api/schedules/${schedule.id}`, {
     method: "PUT",

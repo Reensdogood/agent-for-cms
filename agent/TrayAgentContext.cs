@@ -249,16 +249,9 @@ internal sealed class TrayAgentContext : ApplicationContext
     {
         try
         {
-            if (!PrivilegedTaskBroker.TaskExists(PrivilegedTaskBroker.AgentTask))
-                throw new InvalidOperationException("Agent 관리자 권한 자동 실행 작업을 찾을 수 없습니다.");
-            // 새 exe를 먼저 직접 띄우면 기존 mutex가 남아 있어 새 인스턴스가
-            // 즉시 종료될 수 있다. 현재 인스턴스가 정리된 뒤 예약 작업이
-            // 관리자 권한 Agent를 시작하도록 별도 cmd 프로세스에 위임한다.
-            var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
-            start.ArgumentList.Add("/c");
-            start.ArgumentList.Add($"timeout /t 2 /nobreak >nul & schtasks /Run /TN \"{PrivilegedTaskBroker.AgentTask}\"");
-            if (Process.Start(start) is null) throw new InvalidOperationException("Agent 재시작 작업을 시작하지 못했습니다.");
-            RuntimeTrace.Write("agent.restart.requested", new { task = PrivilegedTaskBroker.AgentTask });
+            if (!AgentRestartHandoff.Start(Environment.ProcessId, out var error))
+                throw new InvalidOperationException(error);
+            RuntimeTrace.Write("agent.restart.requested", new { task = PrivilegedTaskBroker.AgentTask, mode = "verified-handoff" });
             ExitAgent();
         }
         catch (Exception exception) { SetStatus($"재시작 실패: {exception.Message}"); }

@@ -186,6 +186,8 @@ ensureColumn("devices", "region_id", "TEXT");
 ensureColumn("users", "region_id", "TEXT");
 ensureColumn("users", "active", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("schedules", "region_ids_json", "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn("schedules", "action_type", "TEXT NOT NULL DEFAULT 'ume.activate'");
+ensureColumn("schedules", "device_ids_json", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("users", "updated_at", "TEXT");
 db.prepare("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''").run();
 migrateReleasesSchema();
@@ -1389,8 +1391,8 @@ async function handleApi(req, res, url) {
     const schedule = validateSchedule(body);
     const id = crypto.randomUUID();
     const timestamp = now();
-    db.prepare("INSERT INTO schedules (id, name, local_time, days_json, region_ids_json, enabled, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, schedule.name, schedule.localTime, JSON.stringify(schedule.days), JSON.stringify(schedule.regionIds), schedule.enabled ? 1 : 0, session.username, timestamp, timestamp);
+    db.prepare("INSERT INTO schedules (id, name, local_time, days_json, region_ids_json, action_type, device_ids_json, enabled, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, schedule.name, schedule.localTime, JSON.stringify(schedule.days), JSON.stringify(schedule.regionIds), schedule.actionType, JSON.stringify(schedule.deviceIds), schedule.enabled ? 1 : 0, session.username, timestamp, timestamp);
     audit(session.username, "schedule.create", id, schedule);
     return json(res, 201, { schedule: listSchedules().find((item) => item.id === id) });
   }
@@ -1403,8 +1405,8 @@ async function handleApi(req, res, url) {
     const current = db.prepare("SELECT * FROM schedules WHERE id = ?").get(scheduleMatch[1]);
     if (!current) return json(res, 404, { error: "스케줄을 찾을 수 없습니다." });
     const schedule = validateSchedule(await readJson(req));
-    db.prepare("UPDATE schedules SET name = ?, local_time = ?, days_json = ?, region_ids_json = ?, enabled = ?, updated_at = ? WHERE id = ?")
-      .run(schedule.name, schedule.localTime, JSON.stringify(schedule.days), JSON.stringify(schedule.regionIds), schedule.enabled ? 1 : 0, now(), current.id);
+    db.prepare("UPDATE schedules SET name = ?, local_time = ?, days_json = ?, region_ids_json = ?, action_type = ?, device_ids_json = ?, enabled = ?, updated_at = ? WHERE id = ?")
+      .run(schedule.name, schedule.localTime, JSON.stringify(schedule.days), JSON.stringify(schedule.regionIds), schedule.actionType, JSON.stringify(schedule.deviceIds), schedule.enabled ? 1 : 0, now(), current.id);
     audit(session.username, "schedule.update", current.id, schedule);
     return json(res, 200, { schedule: listSchedules().find((item) => item.id === current.id) });
   }
@@ -1427,9 +1429,11 @@ async function handleApi(req, res, url) {
     if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
     const schedule = db.prepare("SELECT * FROM schedules WHERE id = ?").get(scheduleRunMatch[1]);
     if (!schedule) return json(res, 404, { error: "스케줄을 찾을 수 없습니다." });
-    const queued = enqueueUmeActivate(schedule.id, `manual:${crypto.randomUUID()}`, sameRegionOnly(session) ? [session.regionId] : JSON.parse(schedule.region_ids_json || "[]"));
-    audit(session.username, "schedule.run", schedule.id, { queued });
-    return json(res, 202, { queued });
+    const result = await executeScheduleAction(schedule, `manual:${crypto.randomUUID()}`, {
+      regionIdsOverride: sameRegionOnly(session) ? [session.regionId] : null,
+    });
+    audit(session.username, "schedule.run", schedule.id, { actionType: scheduleAction(schedule.action_type).type, ...result });
+    return json(res, 202, result);
   }
 
   const releaseDeleteMatch = url.pathname.match(/^\/api\/releases\/([a-f0-9-]+)$/i);
@@ -1805,6 +1809,24 @@ export const server = http.createServer(async (req, res) => {
   }
 });
 
+const scheduleActions = Object.freeze({
+  "ivision.stop": { type: "ivision.stop", label: "I-Vision 종료" },
+  "ivision.restart": { type: "ivision.restart", label: "I-Vision 실행" },
+  "ume.activate": { type: "ume.activate", label: "화상회의 (UME) 실행" },
+  "smart_plug.on": { type: "smart_plug.on", label: "스마트플러그 ON", smartPlugControl: "ON" },
+  "smart_plug.off": { type: "smart_plug.off", label: "스마트플러그 OFF", smartPlugControl: "OFF" },
+  "windows.shutdown": { type: "windows.shutdown", label: "Windows 종료" },
+});
+
+function scheduleAction(value) {
+  return scheduleActions[value] || scheduleActions["ume.activate"];
+}
+
+function jsonIdList(value) {
+  if (Array.isArray(value)) return [...new Set(value.map(String).filter(Boolean))];
+  try { return jsonIdList(JSON.parse(value || "[]")); } catch { return []; }
+}
+
 function validateSchedule(value) {
   const name = String(value.name || "").trim().slice(0, 100);
   const localTime = String(value.localTime || "");
@@ -1814,25 +1836,51 @@ function validateSchedule(value) {
   if (!days.length) throw Object.assign(new Error("실행 요일을 하나 이상 선택해 주세요."), { status: 400 });
   const regionIds = [...new Set((Array.isArray(value.regionIds) ? value.regionIds : []).map(String).filter(Boolean))];
   const validRegions = db.prepare(`SELECT id FROM regions WHERE id IN (${regionIds.length ? regionIds.map(() => "?").join(",") : "NULL"})`).all(...regionIds).map((row) => row.id);
-  return { name, localTime, days, regionIds: validRegions, enabled: value.enabled !== false };
+  const action = scheduleAction(value.actionType);
+  if (value.actionType && action.type !== value.actionType) throw Object.assign(new Error("실행 기능을 확인해 주세요."), { status: 400 });
+  const requestedDeviceIds = jsonIdList(value.deviceIds).filter((id) => /^[a-f0-9-]{20,80}$/i.test(id));
+  const deviceIds = requestedDeviceIds.length
+    ? db.prepare(`SELECT id FROM devices WHERE approved = 1${validRegions.length ? ` AND region_id IN (${validRegions.map(() => "?").join(",")})` : ""} AND id IN (${requestedDeviceIds.map(() => "?").join(",")})`).all(...validRegions, ...requestedDeviceIds).map((row) => row.id)
+    : [];
+  return { name, localTime, days, regionIds: validRegions, actionType: action.type, deviceIds, enabled: value.enabled !== false };
 }
 
 function listSchedules() {
   return db.prepare("SELECT * FROM schedules ORDER BY local_time, name COLLATE NOCASE").all().map((item) => ({
-    id: item.id, name: item.name, localTime: item.local_time, days: JSON.parse(item.days_json), regionIds: JSON.parse(item.region_ids_json || "[]"),
-    regionNames: JSON.parse(item.region_ids_json || "[]").map((id) => db.prepare("SELECT name FROM regions WHERE id = ?").get(id)?.name).filter(Boolean),
+    id: item.id, name: item.name, localTime: item.local_time, days: JSON.parse(item.days_json), regionIds: jsonIdList(item.region_ids_json),
+    regionNames: jsonIdList(item.region_ids_json).map((id) => db.prepare("SELECT name FROM regions WHERE id = ?").get(id)?.name).filter(Boolean),
+    actionType: scheduleAction(item.action_type).type, actionLabel: scheduleAction(item.action_type).label,
+    deviceIds: jsonIdList(item.device_ids_json),
+    deviceNames: jsonIdList(item.device_ids_json).map((id) => db.prepare("SELECT display_name FROM devices WHERE approved = 1 AND id = ?").get(id)?.display_name).filter(Boolean),
     enabled: Boolean(item.enabled), createdBy: item.created_by, createdAt: item.created_at, updatedAt: item.updated_at,
   }));
 }
 
-function enqueueUmeActivate(scheduleId, runKey, regionIds = []) {
-  const devices = regionIds?.length
-    ? db.prepare(`SELECT id FROM devices WHERE approved = 1 AND region_id IN (${regionIds.map(() => "?").join(",")})`).all(...regionIds)
-    : db.prepare("SELECT id FROM devices WHERE approved = 1").all();
-  const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'ume.activate', ?, ?)");
+function scheduleTargetDevices(schedule, regionIdsOverride = null) {
+  const regionIds = regionIdsOverride || jsonIdList(schedule.regionIds ?? schedule.region_ids_json);
+  const deviceIds = jsonIdList(schedule.deviceIds ?? schedule.device_ids_json);
+  const filters = ["approved = 1"];
+  const args = [];
+  if (regionIds.length) { filters.push(`region_id IN (${regionIds.map(() => "?").join(",")})`); args.push(...regionIds); }
+  if (deviceIds.length) { filters.push(`id IN (${deviceIds.map(() => "?").join(",")})`); args.push(...deviceIds); }
+  return db.prepare(`SELECT id FROM devices WHERE ${filters.join(" AND ")}`).all(...args);
+}
+
+function queueScheduleAgentCommand(actionType, scheduleId, runKey, devices) {
+  const insert = db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)");
   const timestamp = now();
-  for (const device of devices) insert.run(crypto.randomUUID(), device.id, JSON.stringify({ scheduleId, runKey }), timestamp);
-  return devices.length;
+  for (const device of devices) insert.run(crypto.randomUUID(), device.id, actionType, JSON.stringify({ scheduleId, runKey }), timestamp);
+  return { queued: devices.length, targeted: devices.length, succeeded: 0, failed: 0 };
+}
+
+async function executeScheduleAction(schedule, runKey, { regionIdsOverride = null } = {}) {
+  const action = scheduleAction(schedule.actionType ?? schedule.action_type);
+  const devices = scheduleTargetDevices(schedule, regionIdsOverride);
+  if (!action.smartPlugControl) return queueScheduleAgentCommand(action.type, schedule.id, runKey, devices);
+  if (!devices.length) return { queued: 0, targeted: 0, succeeded: 0, failed: 0 };
+  const rows = db.prepare(`SELECT smart_plugs.*, devices.id AS device_id FROM smart_plugs JOIN devices ON devices.id = smart_plugs.device_id WHERE smart_plugs.connection_status = 'online' AND devices.id IN (${devices.map(() => "?").join(",")})`).all(...devices.map((device) => device.id));
+  const result = await controlSmartPlugs(rows, action.smartPlugControl);
+  return { queued: 0, targeted: rows.length, succeeded: result.succeeded.length, failed: result.failed.length };
 }
 
 function koreaClock() {
@@ -1844,20 +1892,28 @@ function koreaClock() {
   return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}`, weekday };
 }
 
-function runDueSchedules() {
+let runningDueSchedules = false;
+async function runDueSchedules() {
+  if (runningDueSchedules) return;
+  runningDueSchedules = true;
   const clock = koreaClock();
-  for (const schedule of listSchedules().filter((item) => item.enabled && item.localTime === clock.time && item.days.includes(clock.weekday))) {
-    const runKey = `${clock.date}:${clock.time}`;
-    try {
-      db.prepare("INSERT INTO schedule_runs (schedule_id, run_key, created_at) VALUES (?, ?, ?)").run(schedule.id, runKey, now());
-      enqueueUmeActivate(schedule.id, runKey, schedule.regionIds);
-    } catch (error) {
-      if (!String(error.message).includes("UNIQUE constraint failed")) console.error(error);
+  try {
+    for (const schedule of listSchedules().filter((item) => item.enabled && item.localTime === clock.time && item.days.includes(clock.weekday))) {
+      const runKey = `${clock.date}:${clock.time}`;
+      try {
+        db.prepare("INSERT INTO schedule_runs (schedule_id, run_key, created_at) VALUES (?, ?, ?)").run(schedule.id, runKey, now());
+        const result = await executeScheduleAction(schedule, runKey);
+        audit("scheduler", "schedule.run", schedule.id, { actionType: schedule.actionType, ...result });
+      } catch (error) {
+        if (!String(error.message).includes("UNIQUE constraint failed")) console.error(error);
+      }
     }
+  } finally {
+    runningDueSchedules = false;
   }
 }
 
-const scheduler = setInterval(runDueSchedules, 15_000);
+const scheduler = setInterval(() => { void runDueSchedules(); }, 15_000);
 scheduler.unref();
 
 if (process.env.NODE_ENV !== "test") {
