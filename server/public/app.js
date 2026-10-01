@@ -261,13 +261,32 @@ function deviceRow(device) {
     const dialog = document.createElement("dialog");
     const displayText = (value) => { const c = value?.connection; const connection = c === "standby" ? "절전/대기 중" : c === "timeout" ? "응답 시간 초과" : c === "connected" ? "연결 정상" : "확인 필요"; return `전원 ${String(value?.power || "미확인").toUpperCase()} · ${value?.input || "입력 미확인"} · 볼륨 ${value?.volume ?? "미확인"} · ${connection}`; };
     dialog.innerHTML = `<form method="dialog"><div class="tv-dialog-header"><span class="eyebrow">DISPLAY CONTROL</span><h3>${device.displayName} TV 제어</h3><p>현재 상태를 확인하고 원하는 동작을 선택하세요.</p><div class="tv-live-status">${displayText(current)}</div><button type="button" class="small secondary" id="readDisplayStatus">TV 현재 상태 조회</button></div><div class="dialog-actions"></div><div class="dialog-footer"><button value="cancel" class="small secondary">닫기</button></div></form>`;
-    dialog.querySelector("#readDisplayStatus").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; try { await api(`/api/devices/${device.id}/display/status`, { method: "POST", body: "{}" }); button.textContent = "조회 중…"; setTimeout(async () => { try { const latest = await api(`/api/devices/${device.id}/display/status`); dialog.querySelector(".tv-live-status").textContent = displayText(latest.display || {}); } catch {} finally { button.disabled = false; button.textContent = "TV 현재 상태 조회"; } }, 1800); } catch (error) { toast(error.message, "error"); button.disabled = false; } });
+    const liveStatus = dialog.querySelector(".tv-live-status");
     const actions = dialog.querySelector(".dialog-actions");
     const displayInputs = Array.isArray(device.displayInputs) && device.displayInputs.length ? device.displayInputs : ["HDMI1", "HDMI2"];
     const commands = [["전원 ON", "power", { on: true }], ["전원 OFF", "power", { on: false }], ...displayInputs.map((input) => [input, "input", { input }]), ["현재 볼륨 +", "volume", { value: 55 }], ["현재 볼륨 −", "volume", { value: 45 }]];
+    const commandButtons = [];
     let statusTimer;
-    const refreshDialogStatus = async () => { try { const latest = await api(`/api/devices/${device.id}/display/status`); dialog.querySelector(".tv-live-status").textContent = displayText(latest.display || {}); } catch {} };
-    for (const [label, kind, payload] of commands) { const active = (label.includes("ON") && String(current.power).toLowerCase() === "on") || (label.includes("OFF") && String(current.power).toLowerCase() === "off") || (label.toUpperCase() === String(current.input || "").toUpperCase()); const tone = label.startsWith("전원") ? "power-command" : label.startsWith("HDMI") ? "input-command" : "volume-command"; const b = textElement("button", `small primary-soft tv-command ${tone}${active ? " active-display" : ""}`, active ? `✓ ${label}` : label); b.type = "button"; b.addEventListener("click", async () => { b.disabled = true; try { await api(`/api/devices/${device.id}/display/${kind}`, { method: "POST", body: JSON.stringify(payload) }); toast(`${device.displayName}에 ${label} 명령을 보냈습니다.`); setTimeout(refreshDialogStatus, 1200); } catch (error) { toast(error.message, "error"); } finally { b.disabled = false; } }); actions.append(b); }
+    const isActiveDisplayCommand = (label, kind, payload, value) => {
+      if (kind === "power") return String(value?.power || "").toLowerCase() === (payload.on ? "on" : "off");
+      if (kind === "input") return String(value?.input || "").toUpperCase() === String(payload.input || label).toUpperCase();
+      return false;
+    };
+    const renderDialogStatus = (value) => {
+      current = value || {};
+      liveStatus.textContent = displayText(current);
+      for (const item of commandButtons) {
+        const active = isActiveDisplayCommand(item.label, item.kind, item.payload, current);
+        item.button.classList.toggle("active-display", active);
+        item.button.textContent = active ? `✓ ${item.label}` : item.label;
+        if (item.kind === "power" || item.kind === "input") item.button.setAttribute("aria-pressed", String(active));
+        else item.button.removeAttribute("aria-pressed");
+      }
+    };
+    const refreshDialogStatus = async () => { try { const latest = await api(`/api/devices/${device.id}/display/status`); renderDialogStatus(latest.display || {}); } catch {} };
+    dialog.querySelector("#readDisplayStatus").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; try { await api(`/api/devices/${device.id}/display/status`, { method: "POST", body: "{}" }); button.textContent = "조회 중…"; setTimeout(async () => { try { await refreshDialogStatus(); } finally { button.disabled = false; button.textContent = "TV 현재 상태 조회"; } }, 1800); } catch (error) { toast(error.message, "error"); button.disabled = false; } });
+    for (const [label, kind, payload] of commands) { const tone = label.startsWith("전원") ? "power-command" : label.startsWith("HDMI") ? "input-command" : "volume-command"; const b = textElement("button", `small primary-soft tv-command ${tone}`, label); b.type = "button"; commandButtons.push({ button: b, label, kind, payload }); b.addEventListener("click", async () => { b.disabled = true; try { await api(`/api/devices/${device.id}/display/${kind}`, { method: "POST", body: JSON.stringify(payload) }); toast(`${device.displayName}에 ${label} 명령을 보냈습니다.`); setTimeout(refreshDialogStatus, 1200); } catch (error) { toast(error.message, "error"); } finally { b.disabled = false; } }); actions.append(b); }
+    renderDialogStatus(current);
     document.body.append(dialog); dialog.addEventListener("close", () => { clearInterval(statusTimer); dialog.remove(); }, { once: true }); dialog.showModal(); statusTimer = setInterval(refreshDialogStatus, 2500);
   });
   actions.append(tv);
