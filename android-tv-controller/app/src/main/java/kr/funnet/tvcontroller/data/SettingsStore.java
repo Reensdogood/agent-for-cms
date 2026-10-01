@@ -16,13 +16,17 @@ import kr.funnet.tvcontroller.display.UsbSerialDiagnostics;
 
 public final class SettingsStore {
     private static final String FILE = "tv_controller_settings";
+    private final Context context;
     private final SharedPreferences preferences;
 
     public SettingsStore(Context context) {
+        this.context = context.getApplicationContext();
         Context safeContext = Build.VERSION.SDK_INT >= 24
                 ? context.createDeviceProtectedStorageContext() : context;
         preferences = safeContext.getSharedPreferences(FILE, Context.MODE_PRIVATE);
     }
+
+    public Context context() { return context; }
 
     public String serverUrl() {
         if (BuildConfig.PRECONFIGURED) return BuildConfig.DEFAULT_SERVER_URL.replaceAll("/+$", "");
@@ -33,7 +37,7 @@ public final class SettingsStore {
         if (BuildConfig.PRECONFIGURED) return BuildConfig.DEFAULT_ENROLLMENT_KEY;
         return preferences.getString("enrollmentKey", "");
     }
-    public String localName() { return preferences.getString("localName", Build.MODEL + " TV"); }
+    public String localName() { return preferences.getString("localName", "MeetingBar A10 TV"); }
     public String tvModel() {
         if (BuildConfig.PRECONFIGURED && !BuildConfig.DEFAULT_TV_MODEL.isBlank()) return BuildConfig.DEFAULT_TV_MODEL;
         return preferences.getString("tvModel", "LH75QET");

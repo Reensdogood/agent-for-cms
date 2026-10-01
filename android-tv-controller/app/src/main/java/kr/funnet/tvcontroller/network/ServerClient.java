@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 
 import kr.funnet.tvcontroller.data.SecureTokenStore;
 import kr.funnet.tvcontroller.data.SettingsStore;
+import kr.funnet.tvcontroller.device.ConferenceIdentityDiagnostics;
 
 public final class ServerClient {
     private final SettingsStore settings;
@@ -62,11 +63,13 @@ public final class ServerClient {
         health.put("installationId", settings.installationId());
         health.put("localName", settings.localName());
         health.put("machineName", Build.MANUFACTURER + " " + Build.MODEL);
-        health.put("agentVersion", "android-0.5.5-poc");
+        health.put("agentVersion", "android-0.5.6-a10-poc");
+        health.put("deviceProfile", "yealink-meetingbar-a10");
+        health.put("conferenceIdentity", ConferenceIdentityDiagnostics.snapshot(settings.context()));
         if (!settings.regionId().isBlank()) health.put("provisionedRegionId", settings.regionId());
         health.put("osVersion", "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")");
         health.put("timestamp", java.time.OffsetDateTime.now().toString());
-        health.put("foregroundApp", "Funnet TV Controller");
+        health.put("foregroundApp", "MeetingBar A10 TV Controller");
         health.put("ivisionRunning", false);
         health.put("ume", JSONObject.NULL);
         health.put("installedUmeVersions", new JSONArray());

@@ -1,4 +1,13 @@
-# Android TV Controller PoC 설치 및 시험
+# MeetingBar A10 TV Controller PoC 설치 및 시험
+
+현재 Android APK는 범용 Android TV/TV Box용이 아니라 **Yealink MeetingBar A10 전용 현장 검증본**이다. 서버에는 `deviceProfile: yealink-meetingbar-a10`으로 보고하며, 다른 Android 장비에 대한 동작은 보증하지 않는다.
+
+## UME·회의 플랫폼 계정 정보
+
+- 앱은 런처에 공개된 UME/Teams/Zoom/Yealink 관련 앱의 표시 이름, 패키지명, 버전을 진단 정보로 보고한다.
+- Android가 이 앱에 명시적으로 공개한 시스템 계정이 있으면 계정 이름과 유형을 보고한다.
+- UME, Microsoft Teams 또는 Zoom Rooms 내부 로그인 ID는 다른 앱의 비공개 데이터이므로 일반 APK가 직접 읽을 수 없다.
+- 실제 로그인 이름을 장비명으로 자동 적용하려면 UME가 제공하는 명시적 API, 브로드캐스트, ContentProvider 또는 서버 연동이 필요하다. 화면 긁기나 다른 앱 데이터 접근은 사용하지 않는다.
 
 ## 준비물
 

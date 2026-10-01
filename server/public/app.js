@@ -303,11 +303,17 @@ function deviceRow(device) {
       } finally {
         diagnostics.disabled = false;
       }
-      const value = latestDevice.serialDiagnostics || { stage: "not_reported", message: "아직 Android 앱에서 USB 진단 정보가 보고되지 않았습니다." };
+      const value = {
+        usbSerial: latestDevice.serialDiagnostics || { stage: "not_reported", message: "아직 Android 앱에서 USB 진단 정보가 보고되지 않았습니다." },
+        meetingBar: {
+          deviceProfile: latestDevice.deviceProfile || "not_reported",
+          conferenceIdentity: latestDevice.conferenceIdentity || { message: "A10/UC 진단은 Android 0.5.6-a10-poc 이상에서 보고됩니다." },
+        },
+      };
       const dialog = document.createElement("dialog");
       const form = document.createElement("form"); form.method = "dialog";
-      form.append(textElement("p", "eyebrow", "ANDROID USB SERIAL"), textElement("h3", "", `${device.displayName} USB 진단`));
-      const description = textElement("p", "", "USB 인식과 TV 응답은 별도 단계입니다. 아래 정보로 FTDI 인식, 권한, 드라이버, 송수신 상태를 확인합니다.");
+      form.append(textElement("p", "eyebrow", "MEETINGBAR A10 DIAGNOSTICS"), textElement("h3", "", `${device.displayName} 장비 진단`));
+      const description = textElement("p", "", "USB 인식·TV 응답과 함께 A10에서 노출되는 회의 앱, UC Provider 후보와 계정 공개 여부를 확인합니다.");
       const output = textElement("pre", "mono usb-diagnostics", JSON.stringify(value, null, 2));
       const footer = document.createElement("div"); footer.className = "dialog-footer";
       const close = textElement("button", "small secondary", "닫기"); close.value = "cancel"; footer.append(close);

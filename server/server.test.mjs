@@ -453,6 +453,8 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
       agentVersion: "android-0.5.1-poc",
       osVersion: "Android 14 (API 34)",
       platform: "android",
+      deviceProfile: "yealink-meetingbar-a10",
+      conferenceIdentity: { profile: "yealink-meetingbar-a10", ucProviderCandidate: "UME", visibleAccounts: [], loginIdentifierReadable: false },
       display: { enabled: true, vendor: "samsung", model: "LH75QBC", port: "FTDI", inputSources: ["HDMI1", "HDMI2", "HDMI3"], serialDiagnostics: { stage: "port_open", selectedDriver: "FtdiSerialDriver", selectedVendorId: "0x0403", selectedProductId: "0x6001" } },
       capabilities: { displayControl: true, ume: false, ivision: false, windowsShutdown: false, agentUpdate: false, supportedInputs: ["HDMI1", "HDMI2", "HDMI3"] },
     }),
@@ -468,6 +470,8 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
   const listed = await (await fetch(`${base}/api/devices`, { headers: { Cookie: cookie } })).json();
   const android = listed.devices.find((item) => item.id === registered.deviceId);
   assert.equal(android.platform, "android");
+  assert.equal(android.deviceProfile, "yealink-meetingbar-a10");
+  assert.equal(android.conferenceIdentity.ucProviderCandidate, "UME");
   assert.equal(android.capabilities.windowsShutdown, false);
   assert.deepEqual(android.capabilities.supportedInputs, ["HDMI1", "HDMI2", "HDMI3"]);
   assert.equal(android.serialDiagnostics.selectedDriver, "FtdiSerialDriver");

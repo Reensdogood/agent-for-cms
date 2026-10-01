@@ -52,10 +52,10 @@ public final class MainActivity extends Activity {
         root.setBackgroundColor(Color.rgb(244, 247, 249));
         scroll.addView(root);
 
-        TextView title = text("TV Controller · PoC", 28, Color.rgb(16, 24, 32));
+        TextView title = text("MeetingBar A10 TV Controller · PoC", 28, Color.rgb(16, 24, 32));
         title.setPadding(0, 0, 0, 24);
         root.addView(title);
-        root.addView(text("PC 로컬서버의 LAN 주소와 등록키를 입력한 뒤 저장·시작하세요.", 16, Color.DKGRAY));
+        root.addView(text("Yealink MeetingBar A10 전용 앱입니다. 서버 주소와 등록키를 입력한 뒤 저장·시작하세요.", 16, Color.DKGRAY));
 
         serverUrl = field("서버 주소", store.serverUrl());
         enrollmentKey = field("등록 키", store.enrollmentKey());
