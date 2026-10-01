@@ -20,12 +20,12 @@ function Invoke-RunnerApi([string]$Method, [string]$Path, [object]$Body = $null,
 function Invoke-BuildJob($job) {
   $output = "dist-runner/$($job.id)"
   if ($job.productType -eq "meetingbar_a10") {
-    & (Join-Path $PSScriptRoot "Build-Android-Poc.ps1") -Version $job.version -OutputDirectory $output -ServerUrl $job.serverBaseUrl -RegionId $job.regionId -RegionName $job.regionName -EnrollmentKey $job.enrollmentKey -TvModel $job.tvModel -DisplayId 0
+    & (Join-Path $PSScriptRoot "Build-Android-Poc.ps1") -Version $job.version -OutputDirectory $output -ServerUrl $job.serverBaseUrl -RegionId $job.regionId -RegionName $job.regionName -EnrollmentKey $job.enrollmentKey -TvModel $job.tvModel -DisplayId 0 | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "MeetingBar A10 APK 빌드가 실패했습니다." }
     return Join-Path $repoRoot "$output\funnet-meetingbar-a10-controller-$($job.version).apk"
   }
   if ($job.productType -eq "windows_agent") {
-    & (Join-Path $PSScriptRoot "Build-Release.ps1") -Version $job.version -OutputDirectory $output -ServerBaseUrl $job.serverBaseUrl -RegionName $job.regionName -EnrollmentKey $job.enrollmentKey
+    & (Join-Path $PSScriptRoot "Build-Release.ps1") -Version $job.version -OutputDirectory $output -ServerBaseUrl $job.serverBaseUrl -RegionName $job.regionName -EnrollmentKey $job.enrollmentKey | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Windows Agent 빌드가 실패했습니다." }
     return Join-Path $repoRoot "$output\funnet-agent-setup-$($job.version).exe"
   }
