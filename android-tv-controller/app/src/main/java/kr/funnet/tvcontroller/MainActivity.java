@@ -21,6 +21,7 @@ import android.widget.Toast;
 
 import kr.funnet.tvcontroller.data.SettingsStore;
 import kr.funnet.tvcontroller.data.SecureTokenStore;
+import kr.funnet.tvcontroller.device.NetworkIdentity;
 import kr.funnet.tvcontroller.service.TvControlService;
 
 public final class MainActivity extends Activity {
@@ -52,14 +53,15 @@ public final class MainActivity extends Activity {
         root.setBackgroundColor(Color.rgb(244, 247, 249));
         scroll.addView(root);
 
-        TextView title = text("MeetingBar A10 TV Controller · PoC", 28, Color.rgb(16, 24, 32));
+        TextView title = text("Yealink MeetingBar A10 TV Controller", 28, Color.rgb(16, 24, 32));
         title.setPadding(0, 0, 0, 24);
         root.addView(title);
-        root.addView(text("Yealink MeetingBar A10 전용 앱입니다. 서버 주소와 등록키를 입력한 뒤 저장·시작하세요.", 16, Color.DKGRAY));
+        root.addView(text("Yealink MeetingBar A10 전용 정식 배포 앱입니다.", 16, Color.DKGRAY));
+        root.addView(text("현재 IP: " + NetworkIdentity.localIpv4Address(), 16, Color.rgb(23, 105, 170)));
 
         serverUrl = field("서버 주소", store.serverUrl());
         enrollmentKey = field("등록 키", store.enrollmentKey());
-        localName = field("장비 이름", store.localName());
+        localName = field("설치 장소 / 장비 이름 (예: 관악구 ○○경로당)", store.localName());
         displayId = field("TV Display ID (0~253)", String.valueOf(store.displayId()));
         root.addView(serverUrl);
         root.addView(enrollmentKey);

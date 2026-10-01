@@ -37,7 +37,7 @@ public final class SettingsStore {
         if (BuildConfig.PRECONFIGURED) return BuildConfig.DEFAULT_ENROLLMENT_KEY;
         return preferences.getString("enrollmentKey", "");
     }
-    public String localName() { return preferences.getString("localName", "MeetingBar A10 TV"); }
+    public String localName() { return preferences.getString("localName", ""); }
     public String tvModel() {
         if (BuildConfig.PRECONFIGURED && !BuildConfig.DEFAULT_TV_MODEL.isBlank()) return BuildConfig.DEFAULT_TV_MODEL;
         return preferences.getString("tvModel", "LH75QET");

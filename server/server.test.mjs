@@ -9,6 +9,7 @@ process.env.NODE_ENV = "test";
 process.env.FUNNET_DATA_DIR = testDir;
 process.env.FUNNET_ADMIN_PASSWORD = "test-admin-password";
 process.env.FUNNET_ENROLLMENT_KEY = "test-enrollment-key-123";
+process.env.FUNNET_BUILD_RUNNER_KEY = "test-build-runner-key-1234567890";
 process.env.ENERCARE_BASE_URL = "https://enercare.test";
 process.env.ENERCARE_DWD_SERVER_ID = "FUNNET";
 process.env.ENERCARE_DWD_GROUP_ID = "FUNNET";
@@ -34,6 +35,28 @@ test.after(() => {
   server.close();
   closeDatabase();
   fs.rmSync(testDir, { recursive: true, force: true });
+});
+
+test("dedicated runner builds and registers a regional MeetingBar A10 artifact", async () => {
+  const login = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "admin", password: "test-admin-password" }) });
+  const loginBody = await login.json();
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const regions = await (await fetch(`${base}/api/regions`, { headers: { Cookie: cookie } })).json();
+  const region = regions.regions[0];
+  const queued = await fetch(`${base}/api/build-jobs`, { method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken }, body: JSON.stringify({ regionId: region.id, productType: "meetingbar_a10", version: "9.9.9", tvModel: "LH65QET" }) });
+  assert.equal(queued.status, 201);
+  const jobId = (await queued.json()).job.id;
+  const next = await fetch(`${base}/api/build-runner/jobs/next`, { headers: { "X-Build-Runner-Key": "test-build-runner-key-1234567890", "X-Build-Runner-Name": "TEST-PC" } });
+  const nextBody = await next.json();
+  assert.equal(nextBody.job.id, jobId);
+  assert.equal(nextBody.job.productType, "meetingbar_a10");
+  assert.ok(nextBody.job.enrollmentKey);
+  const uploaded = await fetch(`${base}/api/build-runner/jobs/${jobId}/result`, { method: "POST", headers: { "X-Build-Runner-Key": "test-build-runner-key-1234567890", "X-Build-Runner-Name": "TEST-PC", "X-File-Name": "funnet-meetingbar-a10-controller-9.9.9.apk", "Content-Type": "application/octet-stream" }, body: Buffer.from("test-apk") });
+  assert.equal(uploaded.status, 201);
+  const jobs = await (await fetch(`${base}/api/build-jobs`, { headers: { Cookie: cookie } })).json();
+  assert.equal(jobs.jobs.find((item) => item.id === jobId).status, "completed");
+  const releaseList = await (await fetch(`${base}/api/releases`, { headers: { Cookie: cookie } })).json();
+  assert.equal(releaseList.releases.find((item) => item.version === "9.9.9").productType, "meetingbar_a10");
 });
 
 test("login, registration, heartbeat, approval and health probe flow", async () => {

@@ -9,8 +9,8 @@ if ([string]::IsNullOrWhiteSpace($EnrollmentKey)) {
 }
 
 & (Join-Path $PSScriptRoot "Build-Android-Poc.ps1") `
-  -Version "0.5.6-a10-funnet-test" `
-  -OutputDirectory "dist-android-funnet-test" `
+  -Version "1.0.0" `
+  -OutputDirectory "dist-android-meetingbar-a10" `
   -ServerUrl "https://agent.funnet.kr" `
   -RegionId "40cbbb16-3eab-48d9-975c-085032dcda0d" `
   -RegionName "펀네트" `

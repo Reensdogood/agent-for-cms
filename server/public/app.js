@@ -8,6 +8,7 @@ const selectedDeviceIds = new Set();
 let schedules = [];
 let scheduleDeviceIds = [];
 let releases = [];
+let buildJobs = [];
 let releaseFilter = "all";
 let selectedRegionId = "all";
 let devicePageSize = 10;
@@ -219,7 +220,7 @@ function deviceRow(device) {
   nameCell.title = `Device ID: ${device.id}`;
   nameCell.setAttribute("aria-label", `${device.displayName} (Device ID ${device.id})`);
   row.append(selectCell, status, tableCell(device.regionName || "-", "region-name"), nameCell, tableCell(device.id, "mono"),
-    tableCell(device.osVersion || "-", "os-version"), (() => { const cell = tableCell(device.agentVersion || "-", "agent-version"); if (device.agentElevationRequired) cell.append(textElement("small", "pending-label", "관리자 권한으로 다시 실행 필요")); return cell; })(),
+    tableCell(device.osVersion || "-", "os-version"), tableCell(device.localIpAddress || "-"), (() => { const cell = tableCell(device.agentVersion || "-", "agent-version"); if (device.agentElevationRequired) cell.append(textElement("small", "pending-label", "관리자 권한으로 다시 실행 필요")); return cell; })(),
     tableCell(supportsUme ? (device.ume?.version ? `${device.ume.name || "UME"} ${device.ume.version}${device.ume.running ? " · 실행" : ""} · funnet-agent ${device.agentVersion || "-"}` : `미감지 · funnet-agent ${device.agentVersion || "-"}`) : "해당 없음"),
     tableCell(supportsIvision ? (device.ivisionRunning ? "실행" : "미실행") : "해당 없음"), tableCell(device.displayConnection || "미확인", `display-connection ${device.displayConnection === "정상" ? "connected" : device.displayConnection === "연결 실패" ? "failed" : ""}`), tableCell(smartPlugLabel(device.smartPlug), `smart-plug-state ${device.smartPlug?.connection === "online" ? "online" : "offline"}`), tableCell(formatTime(device.lastSeenAt)));
   const actions = document.createElement("td");
@@ -307,7 +308,7 @@ function deviceRow(device) {
         usbSerial: latestDevice.serialDiagnostics || { stage: "not_reported", message: "아직 Android 앱에서 USB 진단 정보가 보고되지 않았습니다." },
         meetingBar: {
           deviceProfile: latestDevice.deviceProfile || "not_reported",
-          conferenceIdentity: latestDevice.conferenceIdentity || { message: "A10/UC 진단은 Android 0.5.6-a10-poc 이상에서 보고됩니다." },
+          conferenceIdentity: latestDevice.conferenceIdentity || { message: "A10/UC 진단은 Yealink MeetingBar A10 1.0.0 이상에서 보고됩니다." },
         },
       };
       const dialog = document.createElement("dialog");
@@ -398,6 +399,8 @@ async function loadEnrollmentInfo() {
   $("#agentServerUrl").value = regionInfo.serverBaseUrl;
   const releaseRegion = $("#releaseRegion");
   if (releaseRegion) releaseRegion.replaceChildren(new Option("Agent 대상 지역 선택", ""), ...regionInfo.regions.map((region) => new Option(region.name, region.id)));
+  const buildRegion = $("#buildRegion");
+  if (buildRegion) buildRegion.replaceChildren(new Option("빌드 대상 지역 선택", ""), ...regionInfo.regions.map((region) => new Option(region.name, region.id)));
   renderRegionKeys();
 }
 
@@ -597,17 +600,22 @@ function openScheduleDevicePicker() {
 
 function renderReleases() {
   const list = $("#releaseList");
-  const visibleReleases = releases.filter((release) => releaseFilter === "all" || (releaseFilter === "agent" ? /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.fileName) : !/^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.fileName)));
+  const visibleReleases = releases.filter((release) => {
+    const managed = ["windows_agent", "meetingbar_a10"].includes(release.productType) || /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup|funnet-meetingbar-a10-controller)-/i.test(release.fileName);
+    return releaseFilter === "all" || (releaseFilter === "agent" ? managed : !managed);
+  });
   if (!visibleReleases.length) { list.replaceChildren(textElement("section", "panel empty-card", "등록된 업데이트 파일이 없습니다.")); return; }
   list.replaceChildren(...visibleReleases.map((release) => {
     const card = document.createElement("article");
     card.className = "release-card panel";
-    const isAgent = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.fileName);
-    const icon = textElement("div", `package-icon ${isAgent ? "agent-icon" : "ume-icon"}`, isAgent ? "Agent" : "UME");
+    const isA10 = release.productType === "meetingbar_a10" || /^funnet-meetingbar-a10-controller-/i.test(release.fileName);
+    const isAgent = release.productType === "windows_agent" || /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.fileName);
+    const productLabel = isA10 ? "MeetingBar A10" : isAgent ? "Windows Agent" : "UME";
+    const icon = textElement("div", `package-icon ${isAgent || isA10 ? "agent-icon" : "ume-icon"}`, isA10 ? "A10" : isAgent ? "Agent" : "UME");
     const info = document.createElement("div");
     info.className = "release-info";
-    const regionLabel = isAgent ? (release.regionName || "기존 전역 파일") : "전체 지역";
-    info.append(textElement("h3", "", `${isAgent ? "Agent" : "UME"} ${release.version}`), textElement("p", "", `${release.fileName} · ${formatBytes(release.sizeBytes)} · ${regionLabel}`), textElement("code", "hash", `SHA-256 ${release.sha256}`), textElement("small", "", `${release.createdBy} · ${formatTime(release.createdAt)}`));
+    const regionLabel = isAgent || isA10 ? (release.regionName || "기존 전역 파일") : "전체 지역";
+    info.append(textElement("h3", "", `${productLabel} ${release.version}`), textElement("p", "", `${release.fileName} · ${formatBytes(release.sizeBytes)} · ${regionLabel}`), textElement("code", "hash", `SHA-256 ${release.sha256}`), textElement("small", "", `${release.createdBy} · ${formatTime(release.createdAt)}`));
     const distribute = textElement("button", "", release.regionName ? `${release.regionName} 장비에 배포` : "전체 장비에 배포");
     distribute.addEventListener("click", async () => {
       const target = release.regionName ? `${release.regionName} 지역의 승인 장비` : "승인된 모든 장비";
@@ -620,17 +628,33 @@ function renderReleases() {
     const remove = textElement("button", "small danger", "삭제");
     remove.addEventListener("click", async () => { if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version} 파일을 삭제할까요?`, isAgent ? "이 Agent 버전의 대기 중인 업데이트 명령과 파일을 함께 삭제합니다." : "배포 대기 중인 UME 파일은 삭제할 수 없습니다.", "삭제")) return; try { const result = await api(`/api/releases/${release.id}`, { method: "DELETE" }); await loadReleases(); toast(result.removedCommands ? `업데이트 파일과 대기 명령 ${result.removedCommands}건을 삭제했습니다.` : "업데이트 파일을 삭제했습니다."); } catch (error) { toast(error.message, "error"); } });
     const actions = textElement("div", "release-actions", "");
-    if (isAgent) {
+    if (isAgent || isA10) {
       const download = textElement("button", "secondary", "설치 파일 다운로드");
       download.addEventListener("click", () => { window.location.assign(`/api/releases/${release.id}/download`); });
       actions.append(download);
     }
-    actions.append(distribute, remove);
+    if (isA10) distribute.remove();
+    actions.append(remove);
     card.append(icon, info, actions); return card;
   }));
 }
 
 async function loadReleases() { releases = (await api("/api/releases")).releases; renderReleases(); }
+
+function renderBuildJobs(runnerConfigured) {
+  $("#buildRunnerStatus").textContent = runnerConfigured ? "전용 PC 러너 연결 대기 · 작업이 있으면 자동 수신" : "서버 러너 키 설정 필요";
+  const labels = { meetingbar_a10: "Yealink MeetingBar A10", windows_agent: "Windows Agent" };
+  const states = { queued: "대기", building: "빌드 중", completed: "완료", failed: "실패" };
+  $("#buildJobList").replaceChildren(...buildJobs.map((job) => {
+    const card = document.createElement("article"); card.className = "release-card panel";
+    const info = document.createElement("div"); info.className = "release-info";
+    info.append(textElement("h3", "", `${labels[job.productType] || job.productType} ${job.version}`), textElement("p", "", `${job.regionName || "-"} · ${job.tvModel || "-"} · ${states[job.status] || job.status}`), textElement("small", "", `${job.runnerName || "러너 대기"} · ${formatTime(job.completedAt || job.claimedAt || job.createdAt)}`));
+    if (job.error) info.append(textElement("code", "hash", job.error));
+    card.append(textElement("div", "package-icon agent-icon", job.productType === "meetingbar_a10" ? "A10" : "Agent"), info); return card;
+  }));
+}
+
+async function loadBuildJobs() { const result = await api("/api/build-jobs"); buildJobs = result.jobs || []; renderBuildJobs(result.runnerConfigured); }
 
 function showPage(name) {
   if (name === "users" && currentSession?.role !== "admin") return;
@@ -642,7 +666,7 @@ function showPage(name) {
   $("#pageTitle").textContent = pageMeta[name][1];
   appView.classList.remove("menu-open");
   if (name === "schedules") loadSchedules().catch(handleError);
-  if (name === "releases") loadReleases().catch(handleError);
+  if (name === "releases") Promise.all([loadReleases(), loadBuildJobs()]).catch(handleError);
   if (name === "users") loadUsers().catch(handleError);
   if (name === "system") Promise.all([loadDevices(), loadSystemStatus()]).catch(handleError);
 }
@@ -750,6 +774,15 @@ $("#userForm").addEventListener("submit", async (event) => {
 });
 
 $("#addScheduleButton").addEventListener("click", () => openSchedule());
+$("#buildProduct")?.addEventListener("change", (event) => { $("#buildTvModelLabel").hidden = event.target.value !== "meetingbar_a10"; });
+$("#refreshBuildJobs")?.addEventListener("click", () => loadBuildJobs().catch(handleError));
+$("#requestBuildButton")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget; button.disabled = true;
+  try {
+    await api("/api/build-jobs", { method: "POST", body: JSON.stringify({ regionId: $("#buildRegion").value, productType: $("#buildProduct").value, version: $("#buildVersion").value.trim(), tvModel: $("#buildTvModel").value }) });
+    await loadBuildJobs(); toast("빌드 요청을 등록했습니다. 전용 PC가 자동으로 작업을 시작합니다.");
+  } catch (error) { handleError(error); } finally { button.disabled = false; }
+});
 $$('[data-bulk-display]').forEach((button) => button.addEventListener("click", async () => {
   const kind = button.dataset.bulkDisplay;
   const value = button.dataset.value;

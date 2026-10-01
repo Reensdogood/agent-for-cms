@@ -1,6 +1,8 @@
-# MeetingBar A10 TV Controller PoC 설치 및 시험
+# Yealink MeetingBar A10 TV Controller 설치 및 시험
 
-현재 Android APK는 범용 Android TV/TV Box용이 아니라 **Yealink MeetingBar A10 전용 현장 검증본**이다. 서버에는 `deviceProfile: yealink-meetingbar-a10`으로 보고하며, 다른 Android 장비에 대한 동작은 보증하지 않는다.
+현재 Android APK는 범용 Android TV/TV Box용이 아니라 **Yealink MeetingBar A10 전용 정식 배포본**이다. 서버에는 `deviceProfile: yealink-meetingbar-a10`으로 보고하며, 다른 Android 장비에 대한 동작은 보증하지 않는다.
+
+신규 설치에서는 `설치 장소 / 장비 이름`을 반드시 입력한다. 장비의 내부 IPv4 주소는 자동 수집되어 서버의 별도 항목으로 보고된다.
 
 ## UME·회의 플랫폼 계정 정보
 

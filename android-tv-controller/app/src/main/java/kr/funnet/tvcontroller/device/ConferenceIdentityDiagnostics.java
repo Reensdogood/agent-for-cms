@@ -102,7 +102,7 @@ public final class ConferenceIdentityDiagnostics {
 
     private static String inferProvider(JSONArray applications) {
         String text = applications.toString().toLowerCase(Locale.ROOT);
-        if (text.contains("ume")) return "UME";
+        if (text.contains("ume") || text.contains("com.yealink.ymr.uc")) return "UME";
         if (text.contains("teams") || text.contains("microsoft")) return "Microsoft Teams";
         if (text.contains("zoom")) return "Zoom Rooms";
         if (text.contains("yealink")) return "Yealink/Device Mode";

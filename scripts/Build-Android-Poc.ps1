@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Version = "0.5.6-a10-poc",
+  [string]$Version = "1.0.0",
   [string]$OutputDirectory = "dist-android-poc",
   [string]$ServerUrl = "",
   [string]$RegionId = "",
@@ -69,7 +69,7 @@ try {
 $source = Join-Path $project "app\build\outputs\apk\debug\app-debug.apk"
 $output = Join-Path $repoRoot $OutputDirectory
 New-Item -ItemType Directory -Path $output -Force | Out-Null
-$destination = Join-Path $output "funnet-tv-controller-$Version.apk"
+$destination = Join-Path $output "funnet-meetingbar-a10-controller-$Version.apk"
 Copy-Item -LiteralPath $source -Destination $destination -Force
 $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
 $hashLine = "$hash  $(Split-Path $destination -Leaf)"

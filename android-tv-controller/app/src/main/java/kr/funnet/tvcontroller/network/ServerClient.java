@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import kr.funnet.tvcontroller.data.SecureTokenStore;
 import kr.funnet.tvcontroller.data.SettingsStore;
 import kr.funnet.tvcontroller.device.ConferenceIdentityDiagnostics;
+import kr.funnet.tvcontroller.device.NetworkIdentity;
 
 public final class ServerClient {
     private final SettingsStore settings;
@@ -63,8 +64,9 @@ public final class ServerClient {
         health.put("installationId", settings.installationId());
         health.put("localName", settings.localName());
         health.put("machineName", Build.MANUFACTURER + " " + Build.MODEL);
-        health.put("agentVersion", "android-0.5.6-a10-poc");
+        health.put("agentVersion", "Yealink MeetingBar A10 1.0.0");
         health.put("deviceProfile", "yealink-meetingbar-a10");
+        health.put("localIpAddress", NetworkIdentity.localIpv4Address());
         health.put("conferenceIdentity", ConferenceIdentityDiagnostics.snapshot(settings.context()));
         if (!settings.regionId().isBlank()) health.put("provisionedRegionId", settings.regionId());
         health.put("osVersion", "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")");

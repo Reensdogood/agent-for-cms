@@ -28,6 +28,7 @@ let enercareTokenRequest = null;
 // FUNNET_COOKIE_SECURE=false로 세션 쿠키를 저장할 수 있어야 한다.
 const secureCookies = process.env.FUNNET_COOKIE_SECURE === "true";
 const maxUploadBytes = Number(process.env.FUNNET_MAX_UPLOAD_BYTES || 1024 * 1024 * 1024);
+const buildRunnerKey = String(process.env.FUNNET_BUILD_RUNNER_KEY || "");
 
 if (!adminPassword || adminPassword.length < 10) {
   throw new Error("FUNNET_ADMIN_PASSWORD must contain at least 10 characters.");
@@ -108,6 +109,23 @@ db.exec(`
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL,
     UNIQUE (version, region_id, file_name)
+  );
+
+  CREATE TABLE IF NOT EXISTS build_jobs (
+    id TEXT PRIMARY KEY,
+    region_id TEXT NOT NULL REFERENCES regions(id),
+    product_type TEXT NOT NULL,
+    version TEXT NOT NULL,
+    tv_model TEXT,
+    status TEXT NOT NULL DEFAULT 'queued',
+    requested_by TEXT NOT NULL,
+    runner_name TEXT,
+    error_text TEXT,
+    release_id TEXT REFERENCES releases(id),
+    created_at TEXT NOT NULL,
+    claimed_at TEXT,
+    completed_at TEXT,
+    UNIQUE(region_id, product_type, version)
   );
 
   CREATE TABLE IF NOT EXISTS schedules (
@@ -671,6 +689,18 @@ function isAgentReleaseName(fileName) {
   return /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(fileName);
 }
 
+function releaseProduct(fileName) {
+  if (/^funnet-meetingbar-a10-controller-/i.test(fileName)) return "meetingbar_a10";
+  if (isAgentReleaseName(fileName)) return "windows_agent";
+  return "ume";
+}
+
+function runnerAuthorized(req) {
+  const supplied = String(req.headers["x-build-runner-key"] || "");
+  if (!buildRunnerKey || supplied.length !== buildRunnerKey.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(buildRunnerKey));
+}
+
 function releaseDto(row) {
   return {
     id: row.id,
@@ -680,8 +710,19 @@ function releaseDto(row) {
     sha256: row.sha256,
     regionId: row.region_id || null,
     regionName: row.region_name || null,
+    productType: releaseProduct(row.file_name),
     createdBy: row.created_by,
     createdAt: row.created_at,
+  };
+}
+
+function buildJobDto(row) {
+  return {
+    id: row.id, regionId: row.region_id, regionName: row.region_name || null,
+    productType: row.product_type, version: row.version, tvModel: row.tv_model || null,
+    status: row.status, requestedBy: row.requested_by, runnerName: row.runner_name || null,
+    error: row.error_text || null, releaseId: row.release_id || null,
+    createdAt: row.created_at, claimedAt: row.claimed_at || null, completedAt: row.completed_at || null,
   };
 }
 
@@ -783,8 +824,8 @@ function deviceDto(row) {
   let serialDiagnostics = null;
   let platform = "windows";
   let capabilities = { displayControl: false, ume: true, ivision: true, windowsShutdown: true, agentUpdate: true, supportedInputs: displayInputs };
-  let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null; let agentElevated = null; let deviceProfile = null; let conferenceIdentity = null;
-  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); displayInputs = displayInputsForHealth(health); serialDiagnostics = health.display?.serialDiagnostics || null; deviceProfile = health.deviceProfile || null; conferenceIdentity = health.conferenceIdentity || null; const androidEvidence = health.platform === "android" || String(row.agent_version || "").startsWith("android-") || /^Android\b/i.test(String(health.osVersion || "")); platform = androidEvidence ? "android" : "windows"; capabilities = { ...capabilities, ...(health.capabilities || {}), supportedInputs: displayInputs }; osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
+  let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null; let agentElevated = null; let deviceProfile = null; let conferenceIdentity = null; let localIpAddress = null;
+  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); displayInputs = displayInputsForHealth(health); serialDiagnostics = health.display?.serialDiagnostics || null; deviceProfile = health.deviceProfile || null; conferenceIdentity = health.conferenceIdentity || null; localIpAddress = health.localIpAddress || null; const androidEvidence = health.platform === "android" || String(row.agent_version || "").startsWith("android-") || /^Android\b/i.test(String(health.osVersion || "")) || health.deviceProfile === "yealink-meetingbar-a10"; platform = androidEvidence ? "android" : "windows"; capabilities = { ...capabilities, ...(health.capabilities || {}), supportedInputs: displayInputs }; osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
   const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
   if (displayCheck?.status === "completed") {
@@ -800,6 +841,7 @@ function deviceDto(row) {
     platform,
     deviceProfile,
     conferenceIdentity,
+    localIpAddress,
     capabilities,
     osVersion: humanizeOsVersion(osVersion, osEdition, osDisplayVersion, osBuild, osRevision),
     installationId: row.installation_id,
@@ -833,6 +875,48 @@ function deviceDto(row) {
 }
 
 async function handleApi(req, res, url) {
+  if (url.pathname.startsWith("/api/build-runner/")) {
+    if (!runnerAuthorized(req)) return json(res, 401, { error: "빌드 러너 인증에 실패했습니다." });
+    if (req.method === "GET" && url.pathname === "/api/build-runner/jobs/next") {
+      const runnerName = String(req.headers["x-build-runner-name"] || "windows-runner").slice(0, 100);
+      const job = db.prepare(`SELECT build_jobs.*, regions.name AS region_name, regions.enrollment_key
+        FROM build_jobs JOIN regions ON regions.id = build_jobs.region_id
+        WHERE build_jobs.status = 'queued' ORDER BY build_jobs.created_at LIMIT 1`).get();
+      if (!job) return json(res, 200, { job: null });
+      const claimedAt = now();
+      const changed = db.prepare("UPDATE build_jobs SET status='building', runner_name=?, claimed_at=? WHERE id=? AND status='queued'").run(runnerName, claimedAt, job.id);
+      if (!changed.changes) return json(res, 200, { job: null });
+      return json(res, 200, { job: { ...buildJobDto({ ...job, status: "building", runner_name: runnerName, claimed_at: claimedAt }), serverBaseUrl: publicServerUrl(req), enrollmentKey: job.enrollment_key } });
+    }
+    const runnerResultMatch = url.pathname.match(/^\/api\/build-runner\/jobs\/([a-f0-9-]+)\/result$/i);
+    if (req.method === "POST" && runnerResultMatch) {
+      const job = db.prepare("SELECT build_jobs.*, regions.name AS region_name FROM build_jobs JOIN regions ON regions.id=build_jobs.region_id WHERE build_jobs.id=?").get(runnerResultMatch[1]);
+      if (!job || job.status !== "building") return json(res, 409, { error: "업로드할 빌드 작업을 찾을 수 없습니다." });
+      const fileName = path.basename(decodeURIComponent(String(req.headers["x-file-name"] || "")));
+      const expected = job.product_type === "meetingbar_a10" ? `funnet-meetingbar-a10-controller-${job.version}.apk` : `funnet-agent-setup-${job.version}.exe`;
+      if (fileName !== expected) return json(res, 400, { error: `결과 파일명은 ${expected}이어야 합니다.` });
+      const id = crypto.randomUUID();
+      const extension = job.product_type === "meetingbar_a10" ? ".apk" : ".exe";
+      const destination = path.join(releaseDir, `${id}${extension}`);
+      const saved = await saveUpload(req, destination);
+      const timestamp = now();
+      db.prepare("INSERT INTO releases (id, version, region_id, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, job.version, job.region_id, fileName, destination, saved.size, saved.sha256, `runner:${job.runner_name || "windows"}`, timestamp);
+      db.prepare("UPDATE build_jobs SET status='completed', release_id=?, completed_at=?, error_text=NULL WHERE id=?").run(id, timestamp, job.id);
+      audit(`runner:${job.runner_name || "windows"}`, "build.complete", job.id, { productType: job.product_type, version: job.version, regionId: job.region_id, ...saved });
+      return json(res, 201, { releaseId: id, sha256: saved.sha256, size: saved.size });
+    }
+    const runnerFailureMatch = url.pathname.match(/^\/api\/build-runner\/jobs\/([a-f0-9-]+)\/failure$/i);
+    if (req.method === "POST" && runnerFailureMatch) {
+      const body = await readJson(req);
+      const error = String(body.error || "빌드 실패").slice(0, 2000);
+      db.prepare("UPDATE build_jobs SET status='failed', error_text=?, completed_at=? WHERE id=? AND status='building'").run(error, now(), runnerFailureMatch[1]);
+      audit("build-runner", "build.failed", runnerFailureMatch[1], { error });
+      return json(res, 200, { ok: true });
+    }
+    return json(res, 404, { error: "빌드 러너 API를 찾을 수 없습니다." });
+  }
+
   const provisioningMatch = url.pathname.match(/^\/api\/installer-provisioning\/([A-Za-z0-9_-]{24,128})$/);
   if (req.method === "GET" && provisioningMatch) {
     const token = provisioningMatch[1];
@@ -1157,6 +1241,43 @@ async function handleApi(req, res, url) {
     return streamBootstrapInstaller(res, token);
   }
 
+  if (req.method === "GET" && url.pathname === "/api/build-jobs") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const scope = sameRegionOnly(session) ? "WHERE build_jobs.region_id = ?" : "";
+    const rows = db.prepare(`SELECT build_jobs.*, regions.name AS region_name FROM build_jobs JOIN regions ON regions.id=build_jobs.region_id ${scope} ORDER BY build_jobs.created_at DESC LIMIT 50`)
+      .all(...(sameRegionOnly(session) ? [session.regionId] : []));
+    return json(res, 200, { jobs: rows.map(buildJobDto), runnerConfigured: buildRunnerKey.length >= 24 });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/build-jobs") {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
+    if (buildRunnerKey.length < 24) return json(res, 503, { error: "서버에 전용 빌드 러너 키가 설정되지 않았습니다." });
+    const body = await readJson(req);
+    const regionId = String(body.regionId || "");
+    const productType = String(body.productType || "");
+    const version = String(body.version || "").trim();
+    const tvModel = productType === "meetingbar_a10" ? String(body.tvModel || "LH65QET").toUpperCase() : null;
+    if (!/^(windows_agent|meetingbar_a10)$/.test(productType)) return json(res, 400, { error: "빌드 제품을 선택해 주세요." });
+    if (!/^[0-9]+(?:\.[0-9]+){2,3}$/.test(version)) return json(res, 400, { error: "버전은 1.0.0 형식으로 입력해 주세요." });
+    if (tvModel && !/^LH(65|75|85)(QET|QBC)$/.test(tvModel)) return json(res, 400, { error: "지원하는 TV 모델을 선택해 주세요." });
+    const region = db.prepare("SELECT id, name FROM regions WHERE id=?").get(regionId);
+    if (!region) return json(res, 400, { error: "대상 지역을 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && region.id !== session.regionId) return json(res, 403, { error: "담당 지역만 빌드할 수 있습니다." });
+    const id = crypto.randomUUID(); const timestamp = now();
+    try {
+      db.prepare("INSERT INTO build_jobs (id, region_id, product_type, version, tv_model, requested_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(id, region.id, productType, version, tvModel, session.username, timestamp);
+    } catch (error) {
+      if (String(error.message).includes("UNIQUE")) return json(res, 409, { error: "같은 지역·제품·버전의 빌드가 이미 존재합니다." });
+      throw error;
+    }
+    audit(session.username, "build.queue", id, { regionId, productType, version, tvModel });
+    return json(res, 201, { job: buildJobDto({ id, region_id: region.id, region_name: region.name, product_type: productType, version, tv_model: tvModel, status: "queued", requested_by: session.username, created_at: timestamp }) });
+  }
+
   if (req.method === "GET" && url.pathname === "/api/releases") {
     const session = requireAdmin(req, res);
     if (!session) return;
@@ -1326,7 +1447,7 @@ async function handleApi(req, res, url) {
     if (!session) return;
     const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseInstallerDownloadMatch[1]);
     if (!release || !fs.existsSync(release.file_path)) return json(res, 404, { error: "배포 파일을 찾을 수 없습니다." });
-    if (!isAgentReleaseName(release.file_name)) return json(res, 400, { error: "Agent 설치 파일만 내려받을 수 있습니다." });
+    if (!["windows_agent", "meetingbar_a10"].includes(releaseProduct(release.file_name))) return json(res, 400, { error: "Agent 또는 MeetingBar A10 설치 파일만 내려받을 수 있습니다." });
     if (sameRegionOnly(session) && release.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 내려받을 수 있습니다." });
     audit(session.username, "release.download", release.id, { version: release.version, regionId: release.region_id });
     return streamRelease(res, release);
@@ -1349,6 +1470,7 @@ async function handleApi(req, res, url) {
     if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
     const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseDistributeMatch[1]);
     if (!release) return json(res, 404, { error: "배포 파일을 찾을 수 없습니다." });
+    if (releaseProduct(release.file_name) === "meetingbar_a10") return json(res, 409, { error: "MeetingBar A10 APK는 장비에서 직접 업데이트 설치해 주세요." });
     const body = await readJson(req);
     const requestedIds = Array.isArray(body.deviceIds) ? body.deviceIds.map(String) : [];
     if (sameRegionOnly(session) && release.region_id && release.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 설치 파일만 배포할 수 있습니다." });

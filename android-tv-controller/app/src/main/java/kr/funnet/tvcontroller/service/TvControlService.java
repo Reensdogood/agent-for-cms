@@ -201,7 +201,7 @@ public final class TvControlService extends Service {
         PendingIntent content = PendingIntent.getActivity(this, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL)
-                .setContentTitle("MeetingBar A10 TV Controller")
+                .setContentTitle("Yealink MeetingBar A10 TV Controller")
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_tv_control)
                 .setOngoing(true)
