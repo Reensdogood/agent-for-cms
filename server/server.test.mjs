@@ -403,6 +403,12 @@ test("login, registration, heartbeat, approval and health probe flow", async () 
   assert.equal(page.status, 200);
   assert.match(await page.text(), /통합관리/);
   assert.match(page.headers.get("content-security-policy"), /frame-src/);
+  const browserApp = await fetch(`${base}/app.js`);
+  assert.equal(browserApp.status, 200);
+  const browserAppSource = await browserApp.text();
+  assert.match(browserAppSource, /USB 진단/, "deployed browser bundle must retain Android USB diagnostics");
+  assert.match(browserAppSource, /isAndroidDevice/, "deployed browser bundle must retain Android device-specific actions");
+  assert.match(browserAppSource, /supportsWindowsShutdown/, "deployed browser bundle must keep capability-gated Windows controls");
   assert.equal((await (await fetch(`${base}/healthz`)).json()).ok, true);
 
   const remove = await fetch(`${base}/api/devices/${registered.deviceId}`, {
@@ -465,6 +471,22 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
   assert.equal(android.capabilities.windowsShutdown, false);
   assert.deepEqual(android.capabilities.supportedInputs, ["HDMI1", "HDMI2", "HDMI3"]);
   assert.equal(android.serialDiagnostics.selectedDriver, "FtdiSerialDriver");
+
+  const inferredHeartbeat = await fetch(`${base}/api/agent/heartbeat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${registered.deviceToken}` },
+    body: JSON.stringify({
+      localName: "Android TV PoC",
+      machineName: "Yealink MeetingBar A10",
+      agentVersion: "android-0.5.3-poc",
+      osVersion: "Android 13 (API 33)",
+      display: { enabled: true, model: "LH75QBC", inputSources: ["HDMI1", "HDMI2", "HDMI3"], serialDiagnostics: { stage: "driver_not_found" } },
+      capabilities: { displayControl: true, ume: false, ivision: false, windowsShutdown: false, supportedInputs: ["HDMI1", "HDMI2", "HDMI3"] },
+    }),
+  });
+  assert.equal(inferredHeartbeat.status, 200);
+  const inferredList = await (await fetch(`${base}/api/devices`, { headers: { Cookie: cookie } })).json();
+  assert.equal(inferredList.devices.find((item) => item.id === registered.deviceId).platform, "android");
 
   for (const path of ["windows/shutdown", "run-ume", "ivision/stop"]) {
     const response = await fetch(`${base}/api/devices/${registered.deviceId}/${path}`, {

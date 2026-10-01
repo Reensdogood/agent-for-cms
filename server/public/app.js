@@ -201,6 +201,7 @@ async function openSmartPlugDialog(device, setup = false) {
 
 function deviceRow(device) {
   const capabilities = device.capabilities || {};
+  const isAndroidDevice = device.platform === "android" || String(device.agentVersion || "").startsWith("android-") || /^Android\b/i.test(String(device.osVersion || ""));
   const supportsUme = capabilities.ume !== false;
   const supportsIvision = capabilities.ivision !== false;
   const supportsWindowsShutdown = capabilities.windowsShutdown !== false;
@@ -270,7 +271,7 @@ function deviceRow(device) {
     document.body.append(dialog); dialog.addEventListener("close", () => { clearInterval(statusTimer); dialog.remove(); }, { once: true }); dialog.showModal(); statusTimer = setInterval(refreshDialogStatus, 2500);
   });
   actions.append(tv);
-  if (device.platform === "android") {
+  if (isAndroidDevice) {
     const diagnostics = textElement("button", "small secondary", "USB 진단");
     diagnostics.addEventListener("click", () => {
       const value = device.serialDiagnostics || { stage: "not_reported", message: "아직 Android 앱에서 USB 진단 정보가 보고되지 않았습니다." };
