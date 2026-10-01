@@ -27,6 +27,9 @@ public final class UsbSerialTransport implements SerialTransport {
     private UsbSerialPort port;
     private UsbDeviceConnection connection;
     private String name = "USB 미연결";
+    private byte[] pendingRead = new byte[0];
+    private int pendingReadOffset;
+    private int pendingReadLength;
 
     public UsbSerialTransport(Context context) {
         this.context = context.getApplicationContext();
@@ -156,7 +159,11 @@ public final class UsbSerialTransport implements SerialTransport {
 
     @Override public void discardInput() {
         if (port == null) return;
-        try { port.purgeHwBuffers(true, false); } catch (Exception ignored) {}
+        pendingRead = new byte[0];
+        pendingReadOffset = 0;
+        pendingReadLength = 0;
+        // usb-serial-for-android argument order is purgeWriteBuffers, purgeReadBuffers.
+        try { port.purgeHwBuffers(false, true); } catch (Exception ignored) {}
     }
 
     @Override public void write(byte[] data) throws DisplayException {
@@ -165,12 +172,35 @@ public final class UsbSerialTransport implements SerialTransport {
     }
 
     @Override public int read(byte[] destination, int offset, int length, int timeoutMs) throws DisplayException {
-        byte[] buffer = new byte[length];
+        if (length <= 0) return 0;
+        if (pendingReadLength > 0) {
+            int copied = Math.min(length, pendingReadLength);
+            System.arraycopy(pendingRead, pendingReadOffset, destination, offset, copied);
+            pendingReadOffset += copied;
+            pendingReadLength -= copied;
+            if (pendingReadLength == 0) {
+                pendingRead = new byte[0];
+                pendingReadOffset = 0;
+            }
+            return copied;
+        }
+        int packetSize = 64;
+        try {
+            if (port.getReadEndpoint() != null) packetSize = Math.max(packetSize, port.getReadEndpoint().getMaxPacketSize());
+        } catch (Exception ignored) {}
+        byte[] buffer = new byte[Math.max(length, packetSize)];
         try {
             int read = port.read(buffer, timeoutMs);
-            if (read > 0) System.arraycopy(buffer, 0, destination, offset, Math.min(read, length));
             UsbSerialDiagnostics.recordRx(buffer, read);
-            return Math.max(read, 0);
+            if (read <= 0) return 0;
+            int copied = Math.min(read, length);
+            System.arraycopy(buffer, 0, destination, offset, copied);
+            if (read > copied) {
+                pendingRead = buffer;
+                pendingReadOffset = copied;
+                pendingReadLength = read - copied;
+            }
+            return copied;
         } catch (IOException error) {
             UsbSerialDiagnostics.failure("read_failed", DisplayErrorCode.TIMEOUT.name(), error.getMessage());
             throw new DisplayException(DisplayErrorCode.TIMEOUT, "USB Serial 읽기 실패 또는 시간 초과", error);
@@ -188,6 +218,9 @@ public final class UsbSerialTransport implements SerialTransport {
         if (connection != null) connection.close();
         port = null;
         connection = null;
+        pendingRead = new byte[0];
+        pendingReadOffset = 0;
+        pendingReadLength = 0;
         UsbSerialDiagnostics.update("portOpen", false);
         UsbSerialDiagnostics.update("portClosedAt", System.currentTimeMillis());
     }

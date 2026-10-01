@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Version = "0.5.4-poc",
+  [string]$Version = "0.5.5-poc",
   [string]$OutputDirectory = "dist-android-poc",
   [string]$ServerUrl = "",
   [string]$RegionId = "",
