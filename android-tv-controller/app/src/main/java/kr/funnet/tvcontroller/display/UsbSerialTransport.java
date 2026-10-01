@@ -111,6 +111,7 @@ public final class UsbSerialTransport implements SerialTransport {
         put(diagnostic, "supportedDriverCount", drivers.size());
         put(diagnostic, "devices", detected);
         put(diagnostic, "serialParameters", "9600 8N1 · flow control none");
+        put(diagnostic, "platformDiagnostics", UsbPlatformDiagnostics.snapshot(context));
         UsbSerialDiagnostics.replace(diagnostic);
         return drivers;
     }

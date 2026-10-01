@@ -33,6 +33,7 @@ import kr.funnet.tvcontroller.display.DisplayException;
 import kr.funnet.tvcontroller.display.SamsungMdcClient;
 import kr.funnet.tvcontroller.display.UsbSerialTransport;
 import kr.funnet.tvcontroller.display.UsbSerialDiagnostics;
+import kr.funnet.tvcontroller.display.UsbPlatformDiagnostics;
 import kr.funnet.tvcontroller.network.ServerClient;
 
 public final class TvControlService extends Service {
@@ -51,6 +52,7 @@ public final class TvControlService extends Service {
 
     private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            UsbPlatformDiagnostics.recordEvent(intent);
             if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(intent.getAction())) {
                 usbName = "USB 분리됨";
                 updateStatus("USB Serial 분리됨");
