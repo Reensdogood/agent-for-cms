@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$ConfigPath = "$env:ProgramData\Funnet\BuildRunner\config.json",
+  [string]$ConfigPath = "$env:LOCALAPPDATA\Funnet\BuildRunner\config.json",
   [switch]$Once
 )
 
