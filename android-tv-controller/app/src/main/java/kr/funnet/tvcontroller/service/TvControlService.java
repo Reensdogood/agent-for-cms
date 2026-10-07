@@ -176,7 +176,7 @@ public final class TvControlService extends Service {
             lastHeartbeat = System.currentTimeMillis();
             return new JSONObject().put("platform", "android").put("status", "ok");
         }
-        if ("a10.admin.probe".equals(type)) return AdminPageProbe.run();
+        if ("a10.admin.probe".equals(type)) return AdminPageProbe.run(this);
         if (!type.startsWith("display.")) throw new IllegalArgumentException("Android 앱에서 지원하지 않는 명령입니다: " + type);
         try (UsbSerialTransport transport = new UsbSerialTransport(this);
              SamsungMdcClient client = new SamsungMdcClient(transport, settings.displayId(), settings.tvModel())) {

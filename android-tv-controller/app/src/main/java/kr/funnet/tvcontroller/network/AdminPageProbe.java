@@ -1,5 +1,10 @@
 package kr.funnet.tvcontroller.network;
 
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -29,14 +34,14 @@ public final class AdminPageProbe {
 
     private AdminPageProbe() {}
 
-    public static JSONObject run() throws Exception {
+    public static JSONObject run(Context context) throws Exception {
         String localIp = NetworkIdentity.localIpv4Address();
         JSONArray attempts = new JSONArray();
         String[] candidates = localIp == null || localIp.isBlank()
                 ? new String[]{"https://127.0.0.1/", "http://127.0.0.1/"}
                 : new String[]{"https://127.0.0.1/", "https://" + localIp + "/", "http://127.0.0.1/", "http://" + localIp + "/"};
         for (String candidate : candidates) {
-            JSONObject attempt = probe(candidate);
+            JSONObject attempt = probe(candidate, null, localIp);
             attempts.put(attempt);
             if (attempt.optBoolean("reachable")) {
                 return new JSONObject()
@@ -50,22 +55,48 @@ public final class AdminPageProbe {
                         .put("attempts", attempts);
             }
         }
+        ConnectivityManager connectivity = context.getSystemService(ConnectivityManager.class);
+        if (connectivity != null && localIp != null && !localIp.isBlank()) {
+            for (Network network : connectivity.getAllNetworks()) {
+                NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(network);
+                if (capabilities == null || (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                        && !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))) continue;
+                for (String candidate : new String[]{"https://" + localIp + "/", "http://" + localIp + "/"}) {
+                    JSONObject attempt = probe(candidate, network, localIp);
+                    attempts.put(attempt);
+                    if (attempt.optBoolean("reachable")) {
+                        return new JSONObject()
+                                .put("reachable", true)
+                                .put("selectedUrl", candidate)
+                                .put("selectedNetwork", network.toString())
+                                .put("localIpAddress", localIp)
+                                .put("status", attempt.optInt("status"))
+                                .put("contentType", attempt.optString("contentType"))
+                                .put("server", attempt.optString("server"))
+                                .put("title", attempt.optString("title"))
+                                .put("attempts", attempts);
+                    }
+                }
+            }
+        }
         return new JSONObject()
                 .put("reachable", false)
                 .put("localIpAddress", localIp)
                 .put("attempts", attempts);
     }
 
-    private static JSONObject probe(String address) {
+    private static JSONObject probe(String address, Network network, String localIp) {
         JSONObject result = new JSONObject();
         try {
             result.put("url", address);
-            HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+            result.put("network", network == null ? "default" : network.toString());
+            URL url = new URL(address);
+            HttpURLConnection connection = (HttpURLConnection) (network == null ? url.openConnection() : network.openConnection(url));
             if (connection instanceof HttpsURLConnection https) {
                 SSLContext context = SSLContext.getInstance("TLS");
                 context.init(null, new TrustManager[]{new LocalTrustManager()}, new SecureRandom());
                 https.setSSLSocketFactory(context.getSocketFactory());
-                HostnameVerifier localOnly = (hostname, session) -> "127.0.0.1".equals(hostname) || hostname.equals(NetworkIdentity.localIpv4Address());
+                HostnameVerifier localOnly = (hostname, session) -> "127.0.0.1".equals(hostname) || hostname.equals(localIp);
                 https.setHostnameVerifier(localOnly);
             }
             connection.setConnectTimeout(4_000);
