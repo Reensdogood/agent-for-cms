@@ -292,6 +292,41 @@ function deviceRow(device) {
   });
   actions.append(tv);
   if (isAndroidDevice) {
+    const adminProbe = textElement("button", "small secondary", "관리페이지 점검");
+    adminProbe.disabled = !device.approved || capabilities.a10AdminRelayProbe !== true;
+    if (capabilities.a10AdminRelayProbe !== true) adminProbe.title = "A10 앱 1.0.1 이상에서 지원합니다.";
+    adminProbe.addEventListener("click", async () => {
+      adminProbe.disabled = true;
+      adminProbe.textContent = "점검 요청 중…";
+      try {
+        const queued = await api(`/api/devices/${device.id}/admin-page/probe`, { method: "POST", body: "{}" });
+        let report;
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          report = await api(`/api/devices/${device.id}/admin-page/probe/${queued.commandId}`);
+          if (["completed", "failed"].includes(report.status)) break;
+        }
+        if (!report || !["completed", "failed"].includes(report.status)) throw new Error("A10이 제한 시간 안에 응답하지 않았습니다.");
+        const value = report.result?.result || {};
+        const dialog = document.createElement("dialog");
+        const form = document.createElement("form"); form.method = "dialog";
+        form.append(textElement("p", "eyebrow", "A10 ADMIN RELAY CHECK"), textElement("h3", "", `${device.displayName} 관리페이지 점검`));
+        form.append(textElement("p", "", value.reachable
+          ? `장비 내부에서 관리페이지에 연결됐습니다. ${value.selectedUrl || ""} · HTTP ${value.status || "-"}${value.title ? ` · ${value.title}` : ""}`
+          : `장비 내부에서 관리페이지를 찾지 못했습니다. A10의 HTTPS 웹 서비스를 확인해 주세요.`));
+        const output = textElement("pre", "mono usb-diagnostics", JSON.stringify(value, null, 2));
+        const footer = document.createElement("div"); footer.className = "dialog-footer";
+        const close = textElement("button", "small secondary", "닫기"); close.value = "cancel"; footer.append(close);
+        form.append(output, footer); dialog.append(form); document.body.append(dialog);
+        dialog.addEventListener("close", () => dialog.remove(), { once: true }); dialog.showModal();
+      } catch (error) {
+        toast(`관리페이지 점검 실패: ${error.message}`, "error");
+      } finally {
+        adminProbe.disabled = !device.approved || capabilities.a10AdminRelayProbe !== true;
+        adminProbe.textContent = "관리페이지 점검";
+      }
+    });
+    actions.append(adminProbe);
     const diagnostics = textElement("button", "small secondary", "USB 진단");
     diagnostics.addEventListener("click", async () => {
       diagnostics.disabled = true;

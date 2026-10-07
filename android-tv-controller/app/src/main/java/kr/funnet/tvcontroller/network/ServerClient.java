@@ -14,6 +14,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import kr.funnet.tvcontroller.BuildConfig;
 
 import kr.funnet.tvcontroller.data.SecureTokenStore;
 import kr.funnet.tvcontroller.data.SettingsStore;
@@ -64,7 +65,7 @@ public final class ServerClient {
         health.put("installationId", settings.installationId());
         health.put("localName", settings.localName());
         health.put("machineName", Build.MANUFACTURER + " " + Build.MODEL);
-        health.put("agentVersion", "Yealink MeetingBar A10 1.0.0");
+        health.put("agentVersion", "Yealink MeetingBar A10 " + BuildConfig.VERSION_NAME);
         health.put("deviceProfile", "yealink-meetingbar-a10");
         health.put("localIpAddress", NetworkIdentity.localIpv4Address());
         health.put("conferenceIdentity", ConferenceIdentityDiagnostics.snapshot(settings.context()));

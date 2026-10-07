@@ -1827,6 +1827,42 @@ async function handleApi(req, res, url) {
     return json(res, 200, { device: deviceDto(db.prepare("SELECT devices.*, regions.name AS region_name FROM devices LEFT JOIN regions ON regions.id = devices.region_id WHERE devices.id = ?").get(current.id)) });
   }
 
+  const adminPageProbeMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/admin-page\/probe$/i);
+  if (req.method === "POST" && adminPageProbeMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!canOperate(session)) return json(res, 403, { error: "이 작업을 수행할 권한이 없습니다." });
+    const device = db.prepare("SELECT id, region_id, approved FROM devices WHERE id = ?").get(adminPageProbeMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 확인할 수 있습니다." });
+    if (!device.approved) return json(res, 400, { error: "승인된 장비만 확인할 수 있습니다." });
+    if (!deviceHasCapability(device.id, "a10AdminRelayProbe")) return json(res, 409, { error: "A10 관리페이지 점검을 지원하는 앱 1.0.1 이상이 필요합니다." });
+    db.prepare("DELETE FROM commands WHERE device_id = ? AND type = 'a10.admin.probe' AND status IN ('pending','delivered')").run(device.id);
+    const commandId = crypto.randomUUID();
+    db.prepare("INSERT INTO commands (id, device_id, type, payload_json, created_at) VALUES (?, ?, 'a10.admin.probe', '{}', ?)")
+      .run(commandId, device.id, now());
+    audit(session.username, "a10.admin.probe", device.id, { commandId });
+    return json(res, 202, { commandId, status: "pending" });
+  }
+
+  const adminPageProbeResultMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/admin-page\/probe\/([a-f0-9-]+)$/i);
+  if (req.method === "GET" && adminPageProbeResultMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const device = db.prepare("SELECT id, region_id FROM devices WHERE id = ?").get(adminPageProbeResultMatch[1]);
+    if (!device) return json(res, 404, { error: "장비를 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && device.region_id !== session.regionId) return json(res, 403, { error: "담당 지역 장비만 확인할 수 있습니다." });
+    const command = db.prepare("SELECT status, result_json, created_at, completed_at FROM commands WHERE id = ? AND device_id = ? AND type = 'a10.admin.probe'")
+      .get(adminPageProbeResultMatch[2], device.id);
+    if (!command) return json(res, 404, { error: "관리페이지 점검 요청을 찾을 수 없습니다." });
+    return json(res, 200, {
+      status: command.status,
+      result: safeJson(command.result_json),
+      createdAt: command.created_at,
+      completedAt: command.completed_at,
+    });
+  }
+
   const probeMatch = url.pathname.match(/^\/api\/devices\/([a-f0-9-]+)\/probe$/i);
   if (req.method === "POST" && probeMatch) {
     const session = requireAdmin(req, res, true);

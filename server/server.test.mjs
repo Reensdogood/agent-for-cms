@@ -479,7 +479,7 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
       deviceProfile: "yealink-meetingbar-a10",
       conferenceIdentity: { profile: "yealink-meetingbar-a10", ucProviderCandidate: "UME", visibleAccounts: [], loginIdentifierReadable: false },
       display: { enabled: true, vendor: "samsung", model: "LH75QBC", port: "FTDI", inputSources: ["HDMI1", "HDMI2", "HDMI3"], serialDiagnostics: { stage: "port_open", selectedDriver: "FtdiSerialDriver", selectedVendorId: "0x0403", selectedProductId: "0x6001" } },
-      capabilities: { displayControl: true, ume: false, ivision: false, windowsShutdown: false, agentUpdate: false, supportedInputs: ["HDMI1", "HDMI2", "HDMI3"] },
+      capabilities: { displayControl: true, ume: false, ivision: false, windowsShutdown: false, agentUpdate: false, a10AdminRelayProbe: true, supportedInputs: ["HDMI1", "HDMI2", "HDMI3"] },
     }),
   });
   assert.equal(heartbeat.status, 200);
@@ -489,6 +489,27 @@ test("Android TV controller capabilities keep Windows-only commands off the devi
     headers: { Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken },
   });
   assert.equal(approve.status, 200);
+
+  const adminProbe = await fetch(`${base}/api/devices/${registered.deviceId}/admin-page/probe`, {
+    method: "POST",
+    headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken },
+    body: "{}",
+  });
+  assert.equal(adminProbe.status, 202);
+  const adminProbeId = (await adminProbe.json()).commandId;
+  const agentCommands = await (await fetch(`${base}/api/agent/commands`, {
+    headers: { Authorization: `Bearer ${registered.deviceToken}` },
+  })).json();
+  assert.equal(agentCommands.commands.find((item) => item.id === adminProbeId)?.type, "a10.admin.probe");
+  const adminProbeComplete = await fetch(`${base}/api/agent/commands/${adminProbeId}/result`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${registered.deviceToken}` },
+    body: JSON.stringify({ success: true, result: { reachable: true, selectedUrl: "https://127.0.0.1/", status: 200 } }),
+  });
+  assert.equal(adminProbeComplete.status, 200);
+  const adminProbeResult = await fetch(`${base}/api/devices/${registered.deviceId}/admin-page/probe/${adminProbeId}`, { headers: { Cookie: cookie } });
+  assert.equal(adminProbeResult.status, 200);
+  assert.equal((await adminProbeResult.json()).result.result.reachable, true);
 
   const listed = await (await fetch(`${base}/api/devices`, { headers: { Cookie: cookie } })).json();
   const android = listed.devices.find((item) => item.id === registered.deviceId);

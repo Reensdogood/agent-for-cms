@@ -93,6 +93,7 @@ public final class SettingsStore {
         capabilities.put("ivision", false);
         capabilities.put("windowsShutdown", false);
         capabilities.put("agentUpdate", false);
+        capabilities.put("a10AdminRelayProbe", true);
         capabilities.put("supportedInputs", new JSONArray(SamsungDisplayCapabilities.inputsForModel(tvModel())));
         return capabilities;
     }
