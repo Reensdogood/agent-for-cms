@@ -301,7 +301,7 @@ function deviceRow(device) {
       });
       actions.append(adminPage);
     }
-    const adminProbe = textElement("button", "small secondary", "관리페이지 점검");
+    const adminProbe = textElement("button", "small secondary", "A10 내부 접근 점검");
     adminProbe.disabled = !device.approved || capabilities.a10AdminRelayProbe !== true;
     if (capabilities.a10AdminRelayProbe !== true) adminProbe.title = "A10 앱 1.0.1 이상에서 지원합니다.";
     adminProbe.addEventListener("click", async () => {
@@ -319,10 +319,10 @@ function deviceRow(device) {
         const value = report.result?.result || {};
         const dialog = document.createElement("dialog");
         const form = document.createElement("form"); form.method = "dialog";
-        form.append(textElement("p", "eyebrow", "A10 ADMIN RELAY CHECK"), textElement("h3", "", `${device.displayName} 관리페이지 점검`));
+        form.append(textElement("p", "eyebrow", "A10 INTERNAL ACCESS CHECK"), textElement("h3", "", `${device.displayName} 내부 접근 점검`));
         form.append(textElement("p", "", value.reachable
           ? `장비 내부에서 관리페이지에 연결됐습니다. ${value.selectedUrl || ""} · HTTP ${value.status || "-"}${value.title ? ` · ${value.title}` : ""}`
-          : `장비 내부에서 관리페이지를 찾지 못했습니다. A10의 HTTPS 웹 서비스를 확인해 주세요.`));
+          : `A10 앱의 자기 주소 접근이 제한됐습니다. 관리페이지 중지를 의미하지 않습니다. 다른 PC에서 https://${value.localIpAddress || "A10-IP"}/ 접속 여부를 확인해 주세요.`));
         const output = textElement("pre", "mono usb-diagnostics", JSON.stringify(value, null, 2));
         const footer = document.createElement("div"); footer.className = "dialog-footer";
         const close = textElement("button", "small secondary", "닫기"); close.value = "cancel"; footer.append(close);
@@ -332,7 +332,7 @@ function deviceRow(device) {
         toast(`관리페이지 점검 실패: ${error.message}`, "error");
       } finally {
         adminProbe.disabled = !device.approved || capabilities.a10AdminRelayProbe !== true;
-        adminProbe.textContent = "관리페이지 점검";
+        adminProbe.textContent = "A10 내부 접근 점검";
       }
     });
     actions.append(adminProbe);

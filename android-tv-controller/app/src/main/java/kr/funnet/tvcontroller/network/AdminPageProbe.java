@@ -81,6 +81,9 @@ public final class AdminPageProbe {
         }
         return new JSONObject()
                 .put("reachable", false)
+                .put("scope", "in_app_self_access")
+                .put("managementServiceState", "unknown")
+                .put("interpretation", "A10 앱의 자기 주소 접근이 제한되었습니다. 외부 장비에서 HTTPS 443 접근 여부를 별도로 확인해야 합니다.")
                 .put("localIpAddress", localIp)
                 .put("attempts", attempts);
     }
