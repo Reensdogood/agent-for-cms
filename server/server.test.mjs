@@ -57,6 +57,23 @@ test("dedicated runner builds and registers a regional MeetingBar A10 artifact",
   assert.equal(jobs.jobs.find((item) => item.id === jobId).status, "completed");
   const releaseList = await (await fetch(`${base}/api/releases`, { headers: { Cookie: cookie } })).json();
   assert.equal(releaseList.releases.find((item) => item.version === "9.9.9").productType, "meetingbar_a10");
+
+  const newerQueued = await fetch(`${base}/api/build-jobs`, { method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json", "X-CSRF-Token": loginBody.csrfToken }, body: JSON.stringify({ regionId: region.id, productType: "meetingbar_a10", version: "9.9.10", tvModel: "LH65QET" }) });
+  assert.equal(newerQueued.status, 201);
+  const newerJobId = (await newerQueued.json()).job.id;
+  await fetch(`${base}/api/build-runner/jobs/next`, { headers: { "X-Build-Runner-Key": "test-build-runner-key-1234567890", "X-Build-Runner-Name": "TEST-PC" } });
+  const newerUploaded = await fetch(`${base}/api/build-runner/jobs/${newerJobId}/result`, { method: "POST", headers: { "X-Build-Runner-Key": "test-build-runner-key-1234567890", "X-Build-Runner-Name": "TEST-PC", "X-File-Name": "funnet-meetingbar-a10-controller-9.9.10.apk", "Content-Type": "application/octet-stream" }, body: Buffer.from("newer-test-apk") });
+  assert.equal(newerUploaded.status, 201);
+  assert.equal((await newerUploaded.json()).removedOlderReleases, 1);
+
+  const afterNewerRelease = await (await fetch(`${base}/api/releases`, { headers: { Cookie: cookie } })).json();
+  assert.equal(afterNewerRelease.releases.some((item) => item.version === "9.9.9" && item.productType === "meetingbar_a10"), false);
+  assert.equal(afterNewerRelease.releases.some((item) => item.version === "9.9.10" && item.productType === "meetingbar_a10"), true);
+
+  const deleteHistory = await fetch(`${base}/api/build-jobs/${newerJobId}`, { method: "DELETE", headers: { Cookie: cookie, "X-CSRF-Token": loginBody.csrfToken } });
+  assert.equal(deleteHistory.status, 200);
+  const jobsAfterDelete = await (await fetch(`${base}/api/build-jobs`, { headers: { Cookie: cookie } })).json();
+  assert.equal(jobsAfterDelete.jobs.some((item) => item.id === newerJobId), false);
 });
 
 test("login, registration, heartbeat, approval and health probe flow", async () => {

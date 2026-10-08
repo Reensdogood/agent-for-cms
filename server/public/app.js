@@ -664,14 +664,14 @@ function renderReleases() {
     const distribute = textElement("button", "", release.regionName ? `${release.regionName} 장비에 배포` : "전체 장비에 배포");
     distribute.addEventListener("click", async () => {
       const target = release.regionName ? `${release.regionName} 지역의 승인 장비` : "승인된 모든 장비";
-      if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version}을 배포할까요?`, isAgent ? `${target}가 SHA-256 검증 후 자동으로 업데이트됩니다.` : `${target}가 설치파일을 다운로드하고 전자서명을 검증합니다.`, "배포")) return;
+      if (!await confirmAction(`${isA10 ? "MeetingBar A10" : isAgent ? "Agent" : "UME"} ${release.version}을 배포할까요?`, isAgent ? `${target}가 SHA-256 검증 후 자동으로 업데이트됩니다.` : `${target}가 설치파일을 다운로드하고 전자서명을 검증합니다.`, "배포")) return;
       distribute.disabled = true;
       try { const result = await api(`/api/releases/${release.id}/distribute`, { method: "POST", body: "{}" }); toast(`${result.queued}대에 다운로드 명령을 보냈습니다.`); }
       catch (error) { toast(error.message, "error"); }
       finally { distribute.disabled = false; }
     });
     const remove = textElement("button", "small danger", "삭제");
-    remove.addEventListener("click", async () => { if (!await confirmAction(`${isAgent ? "Agent" : "UME"} ${release.version} 파일을 삭제할까요?`, isAgent ? "이 Agent 버전의 대기 중인 업데이트 명령과 파일을 함께 삭제합니다." : "배포 대기 중인 UME 파일은 삭제할 수 없습니다.", "삭제")) return; try { const result = await api(`/api/releases/${release.id}`, { method: "DELETE" }); await loadReleases(); toast(result.removedCommands ? `업데이트 파일과 대기 명령 ${result.removedCommands}건을 삭제했습니다.` : "업데이트 파일을 삭제했습니다."); } catch (error) { toast(error.message, "error"); } });
+    remove.addEventListener("click", async () => { if (!await confirmAction(`${isA10 ? "MeetingBar A10" : isAgent ? "Agent" : "UME"} ${release.version} 파일을 삭제할까요?`, isA10 || isAgent ? "이 버전의 설치 파일과 연결된 대기 명령을 함께 삭제합니다." : "배포 대기 중인 UME 파일은 삭제할 수 없습니다.", "삭제")) return; try { const result = await api(`/api/releases/${release.id}`, { method: "DELETE" }); await Promise.all([loadReleases(), loadBuildJobs()]); toast(result.removedCommands ? `업데이트 파일과 대기 명령 ${result.removedCommands}건을 삭제했습니다.` : "업데이트 파일을 삭제했습니다."); } catch (error) { toast(error.message, "error"); } });
     const actions = textElement("div", "release-actions", "");
     if (isAgent || isA10) {
       const download = textElement("button", "secondary", "설치 파일 다운로드");
@@ -695,7 +695,17 @@ function renderBuildJobs(runnerConfigured) {
     const info = document.createElement("div"); info.className = "release-info";
     info.append(textElement("h3", "", `${labels[job.productType] || job.productType} ${job.version}`), textElement("p", "", `${job.regionName || "-"} · ${job.tvModel || "-"} · ${states[job.status] || job.status}`), textElement("small", "", `${job.runnerName || "러너 대기"} · ${formatTime(job.completedAt || job.claimedAt || job.createdAt)}`));
     if (job.error) info.append(textElement("code", "hash", job.error));
-    card.append(textElement("div", "package-icon agent-icon", job.productType === "meetingbar_a10" ? "A10" : "Agent"), info); return card;
+    const actions = textElement("div", "release-actions", "");
+    if (job.status !== "building") {
+      const remove = textElement("button", "small danger", "내역 삭제");
+      remove.addEventListener("click", async () => {
+        if (!await confirmAction(`${labels[job.productType] || job.productType} ${job.version} 빌드 내역을 삭제할까요?`, "빌드 내역만 삭제하며, 완성된 설치 파일은 업데이트 목록에서 별도로 관리합니다.", "삭제")) return;
+        try { await api(`/api/build-jobs/${job.id}`, { method: "DELETE" }); await loadBuildJobs(); toast("빌드 내역을 삭제했습니다."); }
+        catch (error) { toast(error.message, "error"); }
+      });
+      actions.append(remove);
+    }
+    card.append(textElement("div", "package-icon agent-icon", job.productType === "meetingbar_a10" ? "A10" : "Agent"), info, actions); return card;
   }));
 }
 

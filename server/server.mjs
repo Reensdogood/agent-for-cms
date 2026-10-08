@@ -695,6 +695,18 @@ function releaseProduct(fileName) {
   return "ume";
 }
 
+function removeOlderA10Releases(currentReleaseId, regionId, version) {
+  const older = db.prepare("SELECT id, file_name, file_path, version FROM releases WHERE id <> ? AND region_id = ?").all(currentReleaseId, regionId)
+    .filter((item) => releaseProduct(item.file_name) === "meetingbar_a10")
+    .filter((item) => compareReleaseVersions(item.version, version) < 0);
+  for (const item of older) {
+    db.prepare("DELETE FROM build_jobs WHERE release_id = ?").run(item.id);
+    db.prepare("DELETE FROM releases WHERE id = ?").run(item.id);
+    try { if (fs.existsSync(item.file_path)) fs.unlinkSync(item.file_path); } catch (error) { console.error(error); }
+  }
+  return older.length;
+}
+
 function runnerAuthorized(req) {
   const supplied = String(req.headers["x-build-runner-key"] || "");
   if (!buildRunnerKey || supplied.length !== buildRunnerKey.length) return false;
@@ -904,8 +916,9 @@ async function handleApi(req, res, url) {
       db.prepare("INSERT INTO releases (id, version, region_id, file_name, file_path, size_bytes, sha256, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .run(id, job.version, job.region_id, fileName, destination, saved.size, saved.sha256, `runner:${job.runner_name || "windows"}`, timestamp);
       db.prepare("UPDATE build_jobs SET status='completed', release_id=?, completed_at=?, error_text=NULL WHERE id=?").run(id, timestamp, job.id);
-      audit(`runner:${job.runner_name || "windows"}`, "build.complete", job.id, { productType: job.product_type, version: job.version, regionId: job.region_id, ...saved });
-      return json(res, 201, { releaseId: id, sha256: saved.sha256, size: saved.size });
+      const removedOlderReleases = job.product_type === "meetingbar_a10" ? removeOlderA10Releases(id, job.region_id, job.version) : 0;
+      audit(`runner:${job.runner_name || "windows"}`, "build.complete", job.id, { productType: job.product_type, version: job.version, regionId: job.region_id, ...saved, removedOlderReleases });
+      return json(res, 201, { releaseId: id, sha256: saved.sha256, size: saved.size, removedOlderReleases });
     }
     const runnerFailureMatch = url.pathname.match(/^\/api\/build-runner\/jobs\/([a-f0-9-]+)\/failure$/i);
     if (req.method === "POST" && runnerFailureMatch) {
@@ -1279,6 +1292,20 @@ async function handleApi(req, res, url) {
     return json(res, 201, { job: buildJobDto({ id, region_id: region.id, region_name: region.name, product_type: productType, version, tv_model: tvModel, status: "queued", requested_by: session.username, created_at: timestamp }) });
   }
 
+  const buildJobDeleteMatch = url.pathname.match(/^\/api\/build-jobs\/([a-f0-9-]+)$/i);
+  if (req.method === "DELETE" && buildJobDeleteMatch) {
+    const session = requireAdmin(req, res, true);
+    if (!session) return;
+    if (!assertRole(session, res, ["admin", "operator", "system_manager"])) return;
+    const job = db.prepare("SELECT * FROM build_jobs WHERE id = ?").get(buildJobDeleteMatch[1]);
+    if (!job) return json(res, 404, { error: "빌드 내역을 찾을 수 없습니다." });
+    if (sameRegionOnly(session) && job.region_id !== session.regionId) return json(res, 403, { error: "담당 지역의 빌드 내역만 삭제할 수 있습니다." });
+    if (job.status === "building") return json(res, 409, { error: "진행 중인 빌드는 삭제할 수 없습니다." });
+    db.prepare("DELETE FROM build_jobs WHERE id = ?").run(job.id);
+    audit(session.username, "build.delete", job.id, { productType: job.product_type, version: job.version, status: job.status });
+    return json(res, 200, { deleted: true });
+  }
+
   if (req.method === "GET" && url.pathname === "/api/releases") {
     const session = requireAdmin(req, res);
     if (!session) return;
@@ -1569,13 +1596,16 @@ async function handleApi(req, res, url) {
     const release = db.prepare("SELECT * FROM releases WHERE id = ?").get(releaseDeleteMatch[1]);
     if (!release) return json(res, 404, { error: "업데이트 파일을 찾을 수 없습니다." });
     const isAgentRelease = /^(Funnet\.Gwanak\.Agent|funnet-agent-setup|funnet-gwanak-agent-setup)-/i.test(release.file_name);
+    const isA10Release = releaseProduct(release.file_name) === "meetingbar_a10";
+    const isManagedRelease = isAgentRelease || isA10Release;
     const pending = db.prepare("SELECT COUNT(*) AS count FROM commands WHERE type IN ('agent.package.download','ume.package.download') AND status = 'pending' AND payload_json LIKE ?").get(`%${release.id}%`);
-    if (Number(pending?.count || 0) > 0 && !isAgentRelease) return json(res, 409, { error: "UME 배포 대기 중인 업데이트는 삭제할 수 없습니다." });
+    if (Number(pending?.count || 0) > 0 && !isManagedRelease) return json(res, 409, { error: "UME 배포 대기 중인 업데이트는 삭제할 수 없습니다." });
     let removedCommands = 0;
-    if (isAgentRelease) {
+    if (isManagedRelease) {
       const result = db.prepare("DELETE FROM commands WHERE type = 'agent.package.download' AND status IN ('pending','delivered') AND payload_json LIKE ?").run(`%${release.id}%`);
       removedCommands = Number(result.changes || 0);
     }
+    db.prepare("DELETE FROM build_jobs WHERE release_id = ?").run(release.id);
     db.prepare("DELETE FROM releases WHERE id = ?").run(release.id);
     try { if (fs.existsSync(release.file_path)) fs.unlinkSync(release.file_path); } catch (error) { console.error(error); }
     audit(session.username, "release.delete", release.id, { version: release.version, fileName: release.file_name, removedCommands });
