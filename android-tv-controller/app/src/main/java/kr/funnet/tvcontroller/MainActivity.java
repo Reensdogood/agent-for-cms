@@ -5,7 +5,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -23,11 +22,9 @@ import android.widget.Toast;
 import kr.funnet.tvcontroller.data.SettingsStore;
 import kr.funnet.tvcontroller.data.SecureTokenStore;
 import kr.funnet.tvcontroller.device.NetworkIdentity;
-import kr.funnet.tvcontroller.network.VpnDiagnostics;
 import kr.funnet.tvcontroller.service.TvControlService;
 
 public final class MainActivity extends Activity {
-    private static final int VPN_PERMISSION_REQUEST = 1200;
     private SettingsStore store;
     private EditText serverUrl;
     private EditText enrollmentKey;
@@ -35,7 +32,6 @@ public final class MainActivity extends Activity {
     private EditText displayId;
     private Spinner tvModel;
     private TextView status;
-    private TextView vpnStatus;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         store = new SettingsStore(this);
@@ -46,7 +42,6 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         status.setText(statusText());
-        vpnStatus.setText(VpnDiagnostics.summary(this));
     }
 
     private View buildView() {
@@ -95,15 +90,6 @@ public final class MainActivity extends Activity {
             catch (Exception error) { startActivity(new Intent(Settings.ACTION_SETTINGS)); }
         });
         root.addView(battery);
-
-        root.addView(text("원격 관리 VPN", 20, Color.rgb(16, 24, 32)));
-        vpnStatus = text(VpnDiagnostics.summary(this), 15, Color.DKGRAY);
-        root.addView(vpnStatus);
-
-        Button vpnPermission = button("내장 터널 권한 테스트");
-        vpnPermission.setOnClickListener(view -> requestVpnPermission());
-        root.addView(vpnPermission);
-        root.addView(text("별도 VPN 앱을 설치하지 않습니다. A10 시스템의 VPN 허용 여부만 검사합니다.", 14, Color.DKGRAY));
 
         Button reset = button("서버 장비 등록 초기화");
         reset.setOnClickListener(view -> {
@@ -187,32 +173,4 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void requestVpnPermission() {
-        try {
-            Intent permissionIntent = VpnService.prepare(this);
-            if (permissionIntent == null) {
-                store.vpnPermissionStatus("granted");
-                vpnStatus.setText(VpnDiagnostics.summary(this));
-                toast("A10에서 내장 VPN 권한을 사용할 수 있습니다.");
-                return;
-            }
-            store.vpnPermissionStatus("requesting");
-            vpnStatus.setText(VpnDiagnostics.summary(this));
-            startActivityForResult(permissionIntent, VPN_PERMISSION_REQUEST);
-        } catch (Exception error) {
-            store.vpnPermissionStatus("denied");
-            vpnStatus.setText(VpnDiagnostics.summary(this));
-            toast("A10 펌웨어가 VPN 권한 화면을 열지 못했습니다: " + error.getClass().getSimpleName());
-        }
-    }
-
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != VPN_PERMISSION_REQUEST) return;
-        store.vpnPermissionStatus(resultCode == RESULT_OK ? "granted" : "denied");
-        vpnStatus.setText(VpnDiagnostics.summary(this));
-        toast(resultCode == RESULT_OK
-                ? "내장 VPN 권한이 승인되었습니다."
-                : "VPN 권한이 거부되었거나 A10 펌웨어가 차단했습니다.");
-    }
 }

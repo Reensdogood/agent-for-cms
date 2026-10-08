@@ -113,6 +113,6 @@ PoC에서 재부팅마다 USB 권한창이 나타나거나 제조사 절전 기�
 
 ## 8. 인터넷 현장 원격 관리 VPN
 
-Tailscale 별도 APK는 A10 펌웨어와 Yealink 관리자 메뉴에서 설치 단계가 멈추므로 반복 설치하지 않는다. 1.2.0은 별도 앱 대신 Agent APK에 WireGuard 사용자 공간 엔진을 포함한다.
+1.4.0부터 Agent APK에는 VPN 엔진, Android `VpnService` 권한 요청, 터널 설정과 VPN 상태 보고가 포함되지 않는다. A10 관리페이지의 **네트워크 → 고급 네트워크 → VPN**에서 장비 자체 OpenVPN 기능을 설정한다.
 
-앱의 **내장 터널 권한 테스트**를 한 번 실행한다. Android 시스템 VPN 동의 화면이 보이면 승인하고, 화면의 상태가 `VPN 권한 승인 완료`로 바뀌는지 확인한다. 화면이 나타나지 않은 채 `시스템 승인 대기 중`으로 남거나 장비가 멈추면 즉시 재시도하지 말고 USB 진단과 함께 서버 Heartbeat의 `vpn.permissionStatus`를 수집한다. 상세 판정은 `docs/a10-vpn-poc-and-self-hosting.md`를 따른다.
+`vpn.cnf`, 루트 인증서, 클라이언트 인증서, 클라이언트 키 및 선택한 TLS 인증 방식에 필요한 키를 각각 업로드한 뒤 VPN을 활성화한다. 상세 파일 구성과 시험 순서는 `docs/a10-vpn-poc-and-self-hosting.md`를 따른다.

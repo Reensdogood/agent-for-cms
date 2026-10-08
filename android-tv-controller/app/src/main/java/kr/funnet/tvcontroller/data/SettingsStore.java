@@ -75,23 +75,6 @@ public final class SettingsStore {
                 .apply();
     }
 
-    public String vpnPermissionStatus() { return preferences.getString("vpnPermissionStatus", "not_tested"); }
-    public long vpnPermissionUpdatedAt() { return preferences.getLong("vpnPermissionUpdatedAt", 0L); }
-    public void vpnPermissionStatus(String value) {
-        preferences.edit()
-                .putString("vpnPermissionStatus", value)
-                .putLong("vpnPermissionUpdatedAt", System.currentTimeMillis())
-                .apply();
-    }
-    public String vpnTunnelStatus() { return preferences.getString("vpnTunnelStatus", "not_configured"); }
-    public long vpnTunnelUpdatedAt() { return preferences.getLong("vpnTunnelUpdatedAt", 0L); }
-    public void vpnTunnelStatus(String value) {
-        preferences.edit()
-                .putString("vpnTunnelStatus", value)
-                .putLong("vpnTunnelUpdatedAt", System.currentTimeMillis())
-                .apply();
-    }
-
     public JSONObject displayHealth(String usbDevice) throws JSONException {
         JSONObject display = new JSONObject();
         display.put("enabled", true);
@@ -111,9 +94,6 @@ public final class SettingsStore {
         capabilities.put("windowsShutdown", false);
         capabilities.put("agentUpdate", false);
         capabilities.put("a10AdminRelayProbe", true);
-        capabilities.put("vpnDiagnostics", true);
-        capabilities.put("vpnProvider", "embedded-wireguard");
-        capabilities.put("vpnPermissionProbe", true);
         capabilities.put("supportedInputs", new JSONArray(SamsungDisplayCapabilities.inputsForModel(tvModel())));
         return capabilities;
     }
