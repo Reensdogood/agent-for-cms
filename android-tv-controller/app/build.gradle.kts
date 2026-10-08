@@ -24,8 +24,8 @@ android {
         // Android TV Box field-test baseline: Android 9 (API 28) or newer.
         minSdk = 28
         targetSdk = 35
-        versionCode = 20
-        versionName = "1.3.0"
+        versionCode = 21
+        versionName = "1.3.1"
 
         buildConfigField("boolean", "PRECONFIGURED", preconfigured.toString())
         buildConfigField("String", "DEFAULT_SERVER_URL", buildConfigString(fixedServerUrl))
