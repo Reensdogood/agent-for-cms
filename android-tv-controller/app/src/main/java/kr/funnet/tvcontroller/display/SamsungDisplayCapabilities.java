@@ -12,7 +12,9 @@ public final class SamsungDisplayCapabilities {
         String normalized = model == null ? "" : model.toUpperCase(Locale.ROOT);
         // QBC is the current Windows Agent contract. QB75B remains supported for
         // Android PoC settings created before the QBC model list was introduced.
-        return (normalized.contains("QBC") || normalized.contains("QB75B"))
+        boolean cSeries = normalized.contains("QBC") || normalized.contains("QMC")
+                || normalized.matches(".*(?:QB|QM)\\d{2}C.*");
+        return (cSeries || normalized.contains("QB75B"))
                 ? THREE_HDMI.clone() : TWO_HDMI.clone();
     }
 

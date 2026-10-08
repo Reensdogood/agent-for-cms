@@ -1,6 +1,7 @@
 package kr.funnet.tvcontroller.service;
 
 import android.app.Notification;
+import android.annotation.SuppressLint;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -72,6 +73,7 @@ public final class TvControlService extends Service {
         else context.startService(intent);
     }
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     @Override public void onCreate() {
         super.onCreate();
         settings = new SettingsStore(this);

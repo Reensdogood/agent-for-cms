@@ -824,8 +824,8 @@ function deviceDto(row) {
   let serialDiagnostics = null;
   let platform = "windows";
   let capabilities = { displayControl: false, ume: true, ivision: true, windowsShutdown: true, agentUpdate: true, supportedInputs: displayInputs };
-  let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null; let agentElevated = null; let deviceProfile = null; let conferenceIdentity = null; let localIpAddress = null;
-  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); displayInputs = displayInputsForHealth(health); serialDiagnostics = health.display?.serialDiagnostics || null; deviceProfile = health.deviceProfile || null; conferenceIdentity = health.conferenceIdentity || null; localIpAddress = health.localIpAddress || null; const androidEvidence = health.platform === "android" || String(row.agent_version || "").startsWith("android-") || /^Android\b/i.test(String(health.osVersion || "")) || health.deviceProfile === "yealink-meetingbar-a10"; platform = androidEvidence ? "android" : "windows"; capabilities = { ...capabilities, ...(health.capabilities || {}), supportedInputs: displayInputs }; osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
+  let osVersion = null; let osEdition = null; let osDisplayVersion = null; let osBuild = null; let osRevision = null; let agentElevated = null; let deviceProfile = null; let conferenceIdentity = null; let localIpAddress = null; let vpn = null;
+  try { const health = JSON.parse(row.last_health_json || "{}"); displayEnabled = Boolean(health.display?.enabled); displayInputs = displayInputsForHealth(health); serialDiagnostics = health.display?.serialDiagnostics || null; deviceProfile = health.deviceProfile || null; conferenceIdentity = health.conferenceIdentity || null; localIpAddress = health.localIpAddress || null; vpn = health.vpn || null; const androidEvidence = health.platform === "android" || String(row.agent_version || "").startsWith("android-") || /^Android\b/i.test(String(health.osVersion || "")) || health.deviceProfile === "yealink-meetingbar-a10"; platform = androidEvidence ? "android" : "windows"; capabilities = { ...capabilities, ...(health.capabilities || {}), supportedInputs: displayInputs }; osVersion = health.osVersion || null; osEdition = health.osEdition; osDisplayVersion = health.osDisplayVersion; osBuild = health.osBuild; osRevision = health.osRevision; agentElevated = typeof health.agentElevated === "boolean" ? health.agentElevated : null; } catch {}
   const displayCheck = db.prepare("SELECT status, completed_at, result_json FROM commands WHERE device_id = ? AND type = 'display.status' ORDER BY created_at DESC LIMIT 1").get(row.id);
   let displayConnection = displayEnabled ? "미확인" : "비활성화";
   if (displayCheck?.status === "completed") {
@@ -842,6 +842,7 @@ function deviceDto(row) {
     deviceProfile,
     conferenceIdentity,
     localIpAddress,
+    vpn,
     capabilities,
     osVersion: humanizeOsVersion(osVersion, osEdition, osDisplayVersion, osBuild, osRevision),
     installationId: row.installation_id,

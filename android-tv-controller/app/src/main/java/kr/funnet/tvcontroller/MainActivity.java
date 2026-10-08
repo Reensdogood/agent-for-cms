@@ -1,8 +1,13 @@
 package kr.funnet.tvcontroller;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
@@ -22,6 +27,8 @@ import android.widget.Toast;
 import kr.funnet.tvcontroller.data.SettingsStore;
 import kr.funnet.tvcontroller.data.SecureTokenStore;
 import kr.funnet.tvcontroller.device.NetworkIdentity;
+import kr.funnet.tvcontroller.network.TailscaleInstaller;
+import kr.funnet.tvcontroller.network.VpnDiagnostics;
 import kr.funnet.tvcontroller.service.TvControlService;
 
 public final class MainActivity extends Activity {
@@ -32,17 +39,37 @@ public final class MainActivity extends Activity {
     private EditText displayId;
     private Spinner tvModel;
     private TextView status;
+    private TextView vpnStatus;
+    private long tailscaleDownloadId = -1L;
+    private final BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (DownloadManager.ACTION_DOWNLOAD_COMPLETE.equals(intent.getAction())
+                    && intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) == tailscaleDownloadId) {
+                TailscaleInstaller.installDownloaded(MainActivity.this, tailscaleDownloadId);
+            }
+        }
+    };
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         store = new SettingsStore(this);
         setContentView(buildView());
         requestNotificationPermission();
+        IntentFilter downloads = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(downloadReceiver, downloads, Context.RECEIVER_EXPORTED);
+        else registerReceiver(downloadReceiver, downloads);
     }
 
     @Override protected void onResume() {
         super.onResume();
         status.setText(statusText());
+        vpnStatus.setText(VpnDiagnostics.summary(this));
+    }
+
+    @Override protected void onDestroy() {
+        try { unregisterReceiver(downloadReceiver); } catch (Exception ignored) {}
+        super.onDestroy();
     }
 
     private View buildView() {
@@ -73,7 +100,7 @@ public final class MainActivity extends Activity {
         root.addView(localName);
 
         tvModel = new Spinner(this);
-        String[] models = {"LH75QET", "LH65QET", "LH85QET", "LH65QBC", "LH75QBC", "LH85QBC"};
+        String[] models = {"LH75QET", "LH65QET", "LH85QET", "LH65QBC", "LH75QBC", "LH85QBC", "LH65QMC", "LH75QMC", "LH85QMC"};
         tvModel.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, models));
         tvModel.setSelection(modelSelection(store.tvModel(), models));
         tvModel.setPadding(8, 12, 8, 12);
@@ -91,6 +118,25 @@ public final class MainActivity extends Activity {
             catch (Exception error) { startActivity(new Intent(Settings.ACTION_SETTINGS)); }
         });
         root.addView(battery);
+
+        root.addView(text("원격 관리 VPN", 20, Color.rgb(16, 24, 32)));
+        vpnStatus = text(VpnDiagnostics.summary(this), 15, Color.DKGRAY);
+        root.addView(vpnStatus);
+
+        Button tailscale = button("Tailscale 설치 또는 실행");
+        tailscale.setOnClickListener(view -> {
+            if (TailscaleInstaller.isInstalled(this)) {
+                if (!TailscaleInstaller.launch(this)) toast("Tailscale 앱을 실행할 수 없습니다.");
+                return;
+            }
+            tailscaleDownloadId = TailscaleInstaller.download(this);
+            if (tailscaleDownloadId >= 0) toast("공식 Tailscale APK를 다운로드합니다. 완료 후 설치를 승인해 주세요.");
+        });
+        root.addView(tailscale);
+
+        Button vpnRefresh = button("VPN 상태 새로고침");
+        vpnRefresh.setOnClickListener(view -> vpnStatus.setText(VpnDiagnostics.summary(this)));
+        root.addView(vpnRefresh);
 
         Button reset = button("서버 장비 등록 초기화");
         reset.setOnClickListener(view -> {
@@ -159,6 +205,7 @@ public final class MainActivity extends Activity {
         for (int index = 0; index < models.length; index++) {
             if (models[index].equalsIgnoreCase(saved)) return index;
         }
+        if (saved != null && saved.toUpperCase().contains("QMC")) return 7;
         if (saved != null && (saved.toUpperCase().contains("QBC") || saved.equalsIgnoreCase("QB75B"))) return 4;
         return 0;
     }

@@ -292,6 +292,15 @@ function deviceRow(device) {
   });
   actions.append(tv);
   if (isAndroidDevice) {
+    const vpnAddress = String(device.vpn?.primaryAddress || "");
+    if (device.vpn?.active && /^[0-9a-f:.]+$/i.test(vpnAddress)) {
+      const adminPage = textElement("button", "small secondary", "VPN 관리페이지");
+      adminPage.addEventListener("click", () => {
+        const host = vpnAddress.includes(":") ? `[${vpnAddress}]` : vpnAddress;
+        window.open(`https://${host}/`, "_blank", "noopener,noreferrer");
+      });
+      actions.append(adminPage);
+    }
     const adminProbe = textElement("button", "small secondary", "관리페이지 점검");
     adminProbe.disabled = !device.approved || capabilities.a10AdminRelayProbe !== true;
     if (capabilities.a10AdminRelayProbe !== true) adminProbe.title = "A10 앱 1.0.1 이상에서 지원합니다.";
@@ -345,6 +354,7 @@ function deviceRow(device) {
           deviceProfile: latestDevice.deviceProfile || "not_reported",
           conferenceIdentity: latestDevice.conferenceIdentity || { message: "A10/UC 진단은 Yealink MeetingBar A10 1.0.0 이상에서 보고됩니다." },
         },
+        vpn: latestDevice.vpn || { provider: "tailscale", installed: false, active: false, message: "A10 Agent 1.1.0 이상에서 보고됩니다." },
       };
       const dialog = document.createElement("dialog");
       const form = document.createElement("form"); form.method = "dialog";

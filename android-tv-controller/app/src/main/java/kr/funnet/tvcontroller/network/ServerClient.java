@@ -68,6 +68,7 @@ public final class ServerClient {
         health.put("agentVersion", "Yealink MeetingBar A10 " + BuildConfig.VERSION_NAME);
         health.put("deviceProfile", "yealink-meetingbar-a10");
         health.put("localIpAddress", NetworkIdentity.localIpv4Address());
+        health.put("vpn", VpnDiagnostics.snapshot(settings.context()));
         health.put("conferenceIdentity", ConferenceIdentityDiagnostics.snapshot(settings.context()));
         if (!settings.regionId().isBlank()) health.put("provisionedRegionId", settings.regionId());
         health.put("osVersion", "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")");

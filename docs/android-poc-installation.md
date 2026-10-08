@@ -18,7 +18,7 @@
 - 전원 공급과 USB Host를 동시에 지원하는 powered OTG hub(스틱인 경우)
 - FTDI, CP210x, Prolific 또는 CDC ACM 기반 USB-to-RS232 케이블
 - Samsung RS232C IN Gender/3.5mm 변환 케이블
-- Samsung QET 계열 또는 QBC 계열(QBC는 HDMI1/2/3 지원)
+- Samsung QET 계열 또는 QBC/QBCE, QMC/QMCE 계열(QBC/QMC는 HDMI1/2/3 지원)
 - 로컬서버 PC와 Android 장비가 접속할 수 있는 동일 LAN
 
 USB-to-TTL 케이블은 사용하지 않는다. Android 장비 전원은 TV USB가 아닌 별도 어댑터에서 공급한다.
@@ -85,14 +85,14 @@ Remove-Item Env:FUNNET_ANDROID_ENROLLMENT_KEY
 2. 관리자 계정으로 로그인
 3. 장비 관리에서 `Android TV PoC` 장비 승인
 4. TV 제어에서 현재 상태 조회
-5. 전원 ON/OFF, HDMI1/2, 볼륨 순서로 시험하고 QBC 모델은 HDMI3도 확인
+5. 전원 ON/OFF, HDMI1/2, 볼륨 순서로 시험하고 QBC/QMC 모델은 HDMI3도 확인
 
 Android 장비에는 UME, i-vision, Windows 종료 기능이 표시되거나 전송되지 않아야 한다.
 
 ## 6. TV 설정
 
 - TV Device ID와 앱 Display ID를 동일하게 설정한다.
-- 앱에서 실제 TV 계열을 선택한다. QET 계열은 HDMI1/2, QBC 계열은 HDMI1/2/3으로 서버에 보고한다.
+- 앱에서 실제 TV 계열을 선택한다. QET 계열은 HDMI1/2, QBC/QMC 계열은 HDMI1/2/3으로 서버에 보고한다.
 - PC Connection Cable/연결 케이블을 RS232C로 설정한다.
 - 대기 중 원격제어와 Remote Configuration 관련 옵션을 허용한다.
 - 자동 전원 끄기와 최대 절전 설정은 PoC 동안 해제한다.
@@ -110,3 +110,9 @@ Android 장비에는 UME, i-vision, Windows 종료 기능이 표시되거나 전
 - 최종적으로 72시간 무조작 유지 시험
 
 PoC에서 재부팅마다 USB 권한창이 나타나거나 제조사 절전 기능이 서비스를 종료하면 해당 스틱은 무인 운영 후보에서 제외하고 산업용 Android Box로 전환한다.
+
+## 8. 인터넷 현장 원격 관리 VPN 시험
+
+앱의 **Tailscale 설치 또는 실행**을 선택한다. 최초 실행에서는 알 수 없는 앱 설치, Tailscale 설치, VPN 연결을 순서대로 승인한다. 관리자 PC도 같은 Tailnet에 연결한 뒤 A10에 할당된 VPN 주소의 `https://VPN-IP/`로 Yealink 관리페이지가 열리는지 확인한다.
+
+상세 합격 조건과 NetBird 자체 호스팅 전환안은 `docs/a10-vpn-poc-and-self-hosting.md`를 따른다. VPN이 연결됐는데도 443이 열리지 않으면 A10 내부 앱 방식은 중단하고 현장 LAN 게이트웨이 방식을 사용한다.

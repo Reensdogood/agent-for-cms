@@ -94,6 +94,8 @@ public final class SettingsStore {
         capabilities.put("windowsShutdown", false);
         capabilities.put("agentUpdate", false);
         capabilities.put("a10AdminRelayProbe", true);
+        capabilities.put("vpnDiagnostics", true);
+        capabilities.put("vpnProvider", "tailscale");
         capabilities.put("supportedInputs", new JSONArray(SamsungDisplayCapabilities.inputsForModel(tvModel())));
         return capabilities;
     }

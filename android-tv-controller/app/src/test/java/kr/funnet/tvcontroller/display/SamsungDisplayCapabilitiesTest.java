@@ -11,6 +11,13 @@ public final class SamsungDisplayCapabilitiesTest {
         assertArrayEquals(new String[]{"HDMI1", "HDMI2", "HDMI3"},
                 SamsungDisplayCapabilities.inputsForModel("LH75QBCEBGCXKR"));
         assertTrue(SamsungDisplayCapabilities.supportsInput("LH75QBC", "HDMI3"));
+        assertTrue(SamsungDisplayCapabilities.supportsInput("QB75C", "HDMI3"));
+    }
+
+    @Test public void qmcFamilyIncludesHdmi3() {
+        assertArrayEquals(new String[]{"HDMI1", "HDMI2", "HDMI3"},
+                SamsungDisplayCapabilities.inputsForModel("LH75QMCEBGCXKR"));
+        assertTrue(SamsungDisplayCapabilities.supportsInput("QM75C", "HDMI3"));
     }
 
     @Test public void qetFamilyRemainsLimitedToTwoHdmiInputs() {
