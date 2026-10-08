@@ -12,6 +12,7 @@ val fixedRegionName = providers.environmentVariable("FUNNET_ANDROID_REGION_NAME"
 val fixedEnrollmentKey = providers.environmentVariable("FUNNET_ANDROID_ENROLLMENT_KEY").orElse("").get()
 val fixedTvModel = providers.environmentVariable("FUNNET_ANDROID_TV_MODEL").orElse("LH65QET").get()
 val fixedDisplayId = providers.environmentVariable("FUNNET_ANDROID_DISPLAY_ID").orElse("0").get().toIntOrNull() ?: 0
+val wireGuardConfigBase64 = providers.environmentVariable("FUNNET_ANDROID_WG_CONFIG_B64").orElse("").get()
 val preconfigured = fixedServerUrl.isNotBlank() && fixedRegionId.isNotBlank() && fixedEnrollmentKey.isNotBlank()
 
 android {
@@ -23,8 +24,8 @@ android {
         // Android TV Box field-test baseline: Android 9 (API 28) or newer.
         minSdk = 28
         targetSdk = 35
-        versionCode = 19
-        versionName = "1.2.1"
+        versionCode = 20
+        versionName = "1.3.0"
 
         buildConfigField("boolean", "PRECONFIGURED", preconfigured.toString())
         buildConfigField("String", "DEFAULT_SERVER_URL", buildConfigString(fixedServerUrl))
@@ -33,6 +34,7 @@ android {
         buildConfigField("String", "DEFAULT_ENROLLMENT_KEY", buildConfigString(fixedEnrollmentKey))
         buildConfigField("String", "DEFAULT_TV_MODEL", buildConfigString(fixedTvModel))
         buildConfigField("int", "DEFAULT_DISPLAY_ID", fixedDisplayId.toString())
+        buildConfigField("String", "WIREGUARD_CONFIG_BASE64", buildConfigString(wireGuardConfigBase64))
 
         testInstrumentationRunner = "android.test.InstrumentationTestRunner"
     }

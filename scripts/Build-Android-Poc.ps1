@@ -7,7 +7,8 @@ param(
   [string]$RegionName = "",
   [string]$EnrollmentKey = "",
   [string]$TvModel = "LH65QET",
-  [ValidateRange(0, 253)][int]$DisplayId = 0
+  [ValidateRange(0, 253)][int]$DisplayId = 0,
+  [string]$WireGuardConfigPath = ""
 )
 
 $fixedValues = @($ServerUrl, $RegionId, $RegionName, $EnrollmentKey)
@@ -45,6 +46,7 @@ try {
     EnrollmentKey = $env:FUNNET_ANDROID_ENROLLMENT_KEY
     TvModel = $env:FUNNET_ANDROID_TV_MODEL
     DisplayId = $env:FUNNET_ANDROID_DISPLAY_ID
+    WireGuardConfigBase64 = $env:FUNNET_ANDROID_WG_CONFIG_B64
   }
   $env:FUNNET_ANDROID_SERVER_URL = $ServerUrl
   $env:FUNNET_ANDROID_REGION_ID = $RegionId
@@ -52,6 +54,10 @@ try {
   $env:FUNNET_ANDROID_ENROLLMENT_KEY = $EnrollmentKey
   $env:FUNNET_ANDROID_TV_MODEL = $TvModel
   $env:FUNNET_ANDROID_DISPLAY_ID = [string]$DisplayId
+  $env:FUNNET_ANDROID_WG_CONFIG_B64 = if ([string]::IsNullOrWhiteSpace($WireGuardConfigPath)) { "" } else {
+    $resolvedWireGuardConfig = (Resolve-Path -LiteralPath $WireGuardConfigPath).Path
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes($resolvedWireGuardConfig))
+  }
   & $gradle testDebugUnitTest assembleDebug
   if ($LASTEXITCODE -ne 0) { throw "Android 테스트 또는 APK 빌드가 실패했습니다." }
 } finally {
@@ -62,6 +68,7 @@ try {
     $env:FUNNET_ANDROID_ENROLLMENT_KEY = $previousBuildEnvironment.EnrollmentKey
     $env:FUNNET_ANDROID_TV_MODEL = $previousBuildEnvironment.TvModel
     $env:FUNNET_ANDROID_DISPLAY_ID = $previousBuildEnvironment.DisplayId
+    $env:FUNNET_ANDROID_WG_CONFIG_B64 = $previousBuildEnvironment.WireGuardConfigBase64
   }
   Pop-Location
 }

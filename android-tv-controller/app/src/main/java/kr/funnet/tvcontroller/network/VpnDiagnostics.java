@@ -23,6 +23,9 @@ public final class VpnDiagnostics {
                 .put("rootRequired", false)
                 .put("permissionStatus", store.vpnPermissionStatus())
                 .put("permissionUpdatedAt", store.vpnPermissionUpdatedAt() == 0L ? JSONObject.NULL : store.vpnPermissionUpdatedAt())
+                .put("tunnelConfigured", !kr.funnet.tvcontroller.BuildConfig.WIREGUARD_CONFIG_BASE64.isBlank())
+                .put("tunnelStatus", store.vpnTunnelStatus())
+                .put("tunnelUpdatedAt", store.vpnTunnelUpdatedAt() == 0L ? JSONObject.NULL : store.vpnTunnelUpdatedAt())
                 .put("vpnTransportActive", false)
                 .put("addresses", new JSONArray());
         ConnectivityManager manager = context.getSystemService(ConnectivityManager.class);
@@ -46,6 +49,9 @@ public final class VpnDiagnostics {
 
     public static String summary(Context context) {
         String status = new kr.funnet.tvcontroller.data.SettingsStore(context).vpnPermissionStatus();
+        String tunnel = new kr.funnet.tvcontroller.data.SettingsStore(context).vpnTunnelStatus();
+        if ("interface_up".equals(tunnel)) return "내장 WireGuard 시작됨 · 10.77.0.2 · handshake 확인 대기";
+        if (tunnel.startsWith("failed:")) return "내장 WireGuard 연결 실패 · " + tunnel.substring(7);
         if ("granted".equals(status)) return "내장 WireGuard 엔진 준비됨 · VPN 권한 승인 완료";
         if ("denied".equals(status)) return "내장 WireGuard 엔진 포함 · VPN 권한 거부/차단됨";
         if ("requesting".equals(status)) return "내장 WireGuard 엔진 포함 · 시스템 승인 대기 중";

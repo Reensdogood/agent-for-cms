@@ -37,6 +37,7 @@ import kr.funnet.tvcontroller.display.UsbSerialDiagnostics;
 import kr.funnet.tvcontroller.display.UsbPlatformDiagnostics;
 import kr.funnet.tvcontroller.network.ServerClient;
 import kr.funnet.tvcontroller.network.AdminPageProbe;
+import kr.funnet.tvcontroller.network.EmbeddedWireGuardTunnel;
 
 public final class TvControlService extends Service {
     private static final String TAG = "FunnetTvController";
@@ -102,6 +103,7 @@ public final class TvControlService extends Service {
     private void runLoop() {
         int consecutiveErrors = 0;
         lastLoopTick = SystemClock.elapsedRealtime();
+        EmbeddedWireGuardTunnel.start(this);
         while (running.get()) {
             try {
                 long elapsed = SystemClock.elapsedRealtime();

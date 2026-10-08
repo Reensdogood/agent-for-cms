@@ -83,6 +83,14 @@ public final class SettingsStore {
                 .putLong("vpnPermissionUpdatedAt", System.currentTimeMillis())
                 .apply();
     }
+    public String vpnTunnelStatus() { return preferences.getString("vpnTunnelStatus", "not_configured"); }
+    public long vpnTunnelUpdatedAt() { return preferences.getLong("vpnTunnelUpdatedAt", 0L); }
+    public void vpnTunnelStatus(String value) {
+        preferences.edit()
+                .putString("vpnTunnelStatus", value)
+                .putLong("vpnTunnelUpdatedAt", System.currentTimeMillis())
+                .apply();
+    }
 
     public JSONObject displayHealth(String usbDevice) throws JSONException {
         JSONObject display = new JSONObject();

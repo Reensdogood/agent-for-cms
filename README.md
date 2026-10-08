@@ -2,7 +2,7 @@
 
 Yealink MeetingBar A10용 USB-to-RS232 Samsung TV 제어 앱이 `android-tv-controller`에 포함되어 있습니다. 설치·시험은 `docs/android-poc-installation.md`, 인터넷 현장의 원격 관리 VPN PoC와 자체 구축 전환안은 `docs/a10-vpn-poc-and-self-hosting.md`를 따릅니다. Android 앱은 Windows Agent와 별도 앱이지만 기존 장비 등록, Heartbeat, 명령 큐와 결과 보고 API를 재사용합니다.
 
-Android 1.2.0은 QET, QBC/QBCE, QMC/QMCE 계열을 지원한다. QBC와 QMC는 HDMI1/2/3을 제공한다. Yealink A10이 별도 VPN APK 설치 단계에서 멈추므로 외부 앱 설치 방식은 제거했다. 대신 공식 WireGuard Android 터널 라이브러리를 Agent APK 안에 포함하고, A10의 시스템 VPN 권한 허용 여부를 확인하는 사전검증 기능을 제공한다. 현장 추가 장비는 전제하지 않는다.
+Android 1.3.0은 QET, QBC/QBCE, QMC/QMCE 계열을 지원한다. QBC와 QMC는 HDMI1/2/3을 제공한다. 공식 WireGuard Android 터널 라이브러리를 Agent APK 안에 포함하며, PoC 전용 빌드는 중앙 허브의 관리망 `10.77.0.0/24`만 터널로 전달한다. 현장 추가 장비는 전제하지 않는다.
 
 관악 지역 Windows 장비에서 UME 화상회의 실행과 i-vision DID 복귀 흐름을 관리하기 위한 운영 MVP입니다.
 
