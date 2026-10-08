@@ -67,15 +67,20 @@ public final class SettingsStore {
     public String status() { return preferences.getString("status", "설정 대기"); }
     public void status(String value) { preferences.edit().putString("status", value).apply(); }
     public String powerStatus() { return preferences.getString("powerStatus", "절전 감시 대기"); }
-    public String vpnInstallStatus() { return preferences.getString("vpnInstallStatus", "설치 대기"); }
-    public void vpnInstallStatus(String value) { preferences.edit().putString("vpnInstallStatus", value).apply(); }
-    public long tailscaleDownloadId() { return preferences.getLong("tailscaleDownloadId", -1L); }
-    public void tailscaleDownloadId(long value) { preferences.edit().putLong("tailscaleDownloadId", value).apply(); }
     public long lastWakeAt() { return preferences.getLong("lastWakeAt", 0L); }
     public void powerEvent(String value) {
         preferences.edit()
                 .putString("powerStatus", value)
                 .putLong("lastWakeAt", System.currentTimeMillis())
+                .apply();
+    }
+
+    public String vpnPermissionStatus() { return preferences.getString("vpnPermissionStatus", "not_tested"); }
+    public long vpnPermissionUpdatedAt() { return preferences.getLong("vpnPermissionUpdatedAt", 0L); }
+    public void vpnPermissionStatus(String value) {
+        preferences.edit()
+                .putString("vpnPermissionStatus", value)
+                .putLong("vpnPermissionUpdatedAt", System.currentTimeMillis())
                 .apply();
     }
 
@@ -99,7 +104,8 @@ public final class SettingsStore {
         capabilities.put("agentUpdate", false);
         capabilities.put("a10AdminRelayProbe", true);
         capabilities.put("vpnDiagnostics", true);
-        capabilities.put("vpnProvider", "tailscale");
+        capabilities.put("vpnProvider", "embedded-wireguard");
+        capabilities.put("vpnPermissionProbe", true);
         capabilities.put("supportedInputs", new JSONArray(SamsungDisplayCapabilities.inputsForModel(tvModel())));
         return capabilities;
     }

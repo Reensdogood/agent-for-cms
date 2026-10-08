@@ -1,15 +1,11 @@
 package kr.funnet.tvcontroller;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.app.DownloadManager;
-import android.content.BroadcastReceiver;
-import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -27,11 +23,11 @@ import android.widget.Toast;
 import kr.funnet.tvcontroller.data.SettingsStore;
 import kr.funnet.tvcontroller.data.SecureTokenStore;
 import kr.funnet.tvcontroller.device.NetworkIdentity;
-import kr.funnet.tvcontroller.network.TailscaleInstaller;
 import kr.funnet.tvcontroller.network.VpnDiagnostics;
 import kr.funnet.tvcontroller.service.TvControlService;
 
 public final class MainActivity extends Activity {
+    private static final int VPN_PERMISSION_REQUEST = 1200;
     private SettingsStore store;
     private EditText serverUrl;
     private EditText enrollmentKey;
@@ -40,38 +36,17 @@ public final class MainActivity extends Activity {
     private Spinner tvModel;
     private TextView status;
     private TextView vpnStatus;
-    private final BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
-        @Override public void onReceive(Context context, Intent intent) {
-            if (DownloadManager.ACTION_DOWNLOAD_COMPLETE.equals(intent.getAction())
-                    && intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) == store.tailscaleDownloadId()) {
-                TailscaleInstaller.resumePendingInstall(MainActivity.this);
-            }
-        }
-    };
-
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         store = new SettingsStore(this);
         setContentView(buildView());
         requestNotificationPermission();
-        IntentFilter downloads = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(downloadReceiver, downloads, Context.RECEIVER_EXPORTED);
-        else registerReceiver(downloadReceiver, downloads);
     }
 
     @Override protected void onResume() {
         super.onResume();
         status.setText(statusText());
         vpnStatus.setText(VpnDiagnostics.summary(this));
-        if (!TailscaleInstaller.isInstalled(this) && store.tailscaleDownloadId() >= 0) {
-            TailscaleInstaller.resumePendingInstall(this);
-        }
-    }
-
-    @Override protected void onDestroy() {
-        try { unregisterReceiver(downloadReceiver); } catch (Exception ignored) {}
-        super.onDestroy();
     }
 
     private View buildView() {
@@ -125,23 +100,10 @@ public final class MainActivity extends Activity {
         vpnStatus = text(VpnDiagnostics.summary(this), 15, Color.DKGRAY);
         root.addView(vpnStatus);
 
-        Button tailscale = button("Tailscale 설치 또는 실행");
-        tailscale.setOnClickListener(view -> {
-            if (TailscaleInstaller.isInstalled(this)) {
-                if (!TailscaleInstaller.launch(this)) toast("Tailscale 앱을 실행할 수 없습니다.");
-                return;
-            }
-            long downloadId = TailscaleInstaller.download(this);
-            if (downloadId >= 0) {
-                vpnStatus.setText(VpnDiagnostics.summary(this));
-                toast("공식 Tailscale APK를 다운로드합니다. 완료 후 설치를 승인해 주세요.");
-            }
-        });
-        root.addView(tailscale);
-
-        Button vpnRefresh = button("VPN 상태 새로고침");
-        vpnRefresh.setOnClickListener(view -> vpnStatus.setText(VpnDiagnostics.summary(this)));
-        root.addView(vpnRefresh);
+        Button vpnPermission = button("내장 터널 권한 테스트");
+        vpnPermission.setOnClickListener(view -> requestVpnPermission());
+        root.addView(vpnPermission);
+        root.addView(text("별도 VPN 앱을 설치하지 않습니다. A10 시스템의 VPN 허용 여부만 검사합니다.", 14, Color.DKGRAY));
 
         Button reset = button("서버 장비 등록 초기화");
         reset.setOnClickListener(view -> {
@@ -223,5 +185,34 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 10);
         }
+    }
+
+    private void requestVpnPermission() {
+        try {
+            Intent permissionIntent = VpnService.prepare(this);
+            if (permissionIntent == null) {
+                store.vpnPermissionStatus("granted");
+                vpnStatus.setText(VpnDiagnostics.summary(this));
+                toast("A10에서 내장 VPN 권한을 사용할 수 있습니다.");
+                return;
+            }
+            store.vpnPermissionStatus("requesting");
+            vpnStatus.setText(VpnDiagnostics.summary(this));
+            startActivityForResult(permissionIntent, VPN_PERMISSION_REQUEST);
+        } catch (Exception error) {
+            store.vpnPermissionStatus("denied");
+            vpnStatus.setText(VpnDiagnostics.summary(this));
+            toast("A10 펌웨어가 VPN 권한 화면을 열지 못했습니다: " + error.getClass().getSimpleName());
+        }
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != VPN_PERMISSION_REQUEST) return;
+        store.vpnPermissionStatus(resultCode == RESULT_OK ? "granted" : "denied");
+        vpnStatus.setText(VpnDiagnostics.summary(this));
+        toast(resultCode == RESULT_OK
+                ? "내장 VPN 권한이 승인되었습니다."
+                : "VPN 권한이 거부되었거나 A10 펌웨어가 차단했습니다.");
     }
 }

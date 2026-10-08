@@ -1,0 +1,12 @@
+Funnet MeetingBar A10 TV Controller - Third-Party Notices
+
+WireGuard Tunnel Library for Android
+Copyright (C) 2017-2026 WireGuard LLC. All Rights Reserved.
+Licensed under the Apache License, Version 2.0.
+https://www.apache.org/licenses/LICENSE-2.0
+Source: https://github.com/WireGuard/wireguard-android
+
+usb-serial-for-android
+Copyright (C) 2011-2026 mik3y and contributors.
+Licensed under the MIT License.
+Source: https://github.com/mik3y/usb-serial-for-android

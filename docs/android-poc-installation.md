@@ -111,8 +111,8 @@ Android 장비에는 UME, i-vision, Windows 종료 기능이 표시되거나 전
 
 PoC에서 재부팅마다 USB 권한창이 나타나거나 제조사 절전 기능이 서비스를 종료하면 해당 스틱은 무인 운영 후보에서 제외하고 산업용 Android Box로 전환한다.
 
-## 8. 인터넷 현장 원격 관리 VPN 시험
+## 8. 인터넷 현장 원격 관리 VPN
 
-1.1.1 이상 앱에서 **Tailscale 설치 또는 실행**을 선택한다. APK는 브라우저 없이 내려받아 Android `PackageInstaller`로 전달된다. 최초 실행에서는 알 수 없는 앱 설치, Tailscale 설치, VPN 연결을 순서대로 승인한다. 설치 화면이 나타나지 않으면 **VPN 상태 새로고침**을 눌러 표시되는 설치 단계 또는 실패 코드를 진단 자료로 수집한다. 관리자 PC도 같은 Tailnet에 연결한 뒤 A10에 할당된 VPN 주소의 `https://VPN-IP/`로 Yealink 관리페이지가 열리는지 확인한다.
+Tailscale 별도 APK는 A10 펌웨어와 Yealink 관리자 메뉴에서 설치 단계가 멈추므로 반복 설치하지 않는다. 1.2.0은 별도 앱 대신 Agent APK에 WireGuard 사용자 공간 엔진을 포함한다.
 
-상세 합격 조건과 NetBird 자체 호스팅 전환안은 `docs/a10-vpn-poc-and-self-hosting.md`를 따른다. VPN이 연결됐는데도 443이 열리지 않으면 A10 내부 앱 방식은 중단하고 현장 LAN 게이트웨이 방식을 사용한다.
+앱의 **내장 터널 권한 테스트**를 한 번 실행한다. Android 시스템 VPN 동의 화면이 보이면 승인하고, 화면의 상태가 `VPN 권한 승인 완료`로 바뀌는지 확인한다. 화면이 나타나지 않은 채 `시스템 승인 대기 중`으로 남거나 장비가 멈추면 즉시 재시도하지 말고 USB 진단과 함께 서버 Heartbeat의 `vpn.permissionStatus`를 수집한다. 상세 판정은 `docs/a10-vpn-poc-and-self-hosting.md`를 따른다.

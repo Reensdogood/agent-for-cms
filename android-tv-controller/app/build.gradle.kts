@@ -23,8 +23,8 @@ android {
         // Android TV Box field-test baseline: Android 9 (API 28) or newer.
         minSdk = 28
         targetSdk = 35
-        versionCode = 16
-        versionName = "1.1.1"
+        versionCode = 18
+        versionName = "1.2.0"
 
         buildConfigField("boolean", "PRECONFIGURED", preconfigured.toString())
         buildConfigField("String", "DEFAULT_SERVER_URL", buildConfigString(fixedServerUrl))
@@ -33,9 +33,6 @@ android {
         buildConfigField("String", "DEFAULT_ENROLLMENT_KEY", buildConfigString(fixedEnrollmentKey))
         buildConfigField("String", "DEFAULT_TV_MODEL", buildConfigString(fixedTvModel))
         buildConfigField("int", "DEFAULT_DISPLAY_ID", fixedDisplayId.toString())
-        buildConfigField("String", "TAILSCALE_VERSION", buildConfigString("1.102.4"))
-        buildConfigField("String", "TAILSCALE_APK_URL", buildConfigString("https://pkgs.tailscale.com/stable/tailscale-android-universal-1.102.4.apk"))
-        buildConfigField("String", "TAILSCALE_APK_SHA256", buildConfigString("7ecfb863e08f5fbd1ecd70235d8c34ba135a4124bdd8e166b9d6fb962782e0b5"))
 
         testInstrumentationRunner = "android.test.InstrumentationTestRunner"
     }
@@ -50,6 +47,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     testOptions {
@@ -63,5 +61,9 @@ android {
 
 dependencies {
     implementation("com.github.mik3y:usb-serial-for-android:3.9.0")
+    // Official non-root WireGuard userspace engine. Tunnel configuration follows
+    // only after the A10 firmware passes the Android VpnService permission probe.
+    implementation("com.wireguard.android:tunnel:1.0.20230706")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
     testImplementation("junit:junit:4.13.2")
 }
