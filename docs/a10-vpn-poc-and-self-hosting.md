@@ -6,7 +6,7 @@
 
 ## 1차 PoC: Tailscale
 
-Agent 1.1.0은 Tailscale을 직접 포함하거나 수정하지 않는다. Tailscale 공식 stable 패키지 서버의 범용 APK를 내려받고 SHA-256을 검증한 뒤 Android 패키지 설치 화면을 연다.
+Agent 1.1.1은 Tailscale을 직접 포함하거나 수정하지 않는다. Tailscale 공식 stable 패키지 서버의 범용 APK를 `DownloadManager`로 내려받고 SHA-256을 검증한 뒤 브라우저나 파일 관리자를 거치지 않고 Android `PackageInstaller` 세션에 전달한다. A10 펌웨어가 설치를 거부하면 Agent 화면에 설치 단계와 Android 오류 코드를 남긴다.
 
 - 공식 패키지: `tailscale-android-universal-1.102.4.apk`
 - 공식 다운로드: `https://pkgs.tailscale.com/stable/tailscale-android-universal-1.102.4.apk`
@@ -21,7 +21,7 @@ Android 보안 정책 때문에 최초 한 번은 운영자가 다음 항목을 
 3. Tailscale의 VPN 연결 권한
 4. QR 또는 등록 코드를 이용한 장비 등록
 
-Agent는 설치 여부, Tailscale 버전, Android VPN 활성 상태, 가상 인터페이스 주소를 Heartbeat의 `vpn` 항목으로 보고한다. Agent 화면의 **Tailscale 설치 또는 실행**과 **VPN 상태 새로고침**으로 현장 상태를 확인한다.
+Agent는 설치 여부, 설치 진행 단계, Tailscale 버전, Android VPN 활성 상태, 가상 인터페이스 주소를 Heartbeat의 `vpn` 항목으로 보고한다. Agent 화면의 **Tailscale 설치 또는 실행**과 **VPN 상태 새로고침**으로 현장 상태를 확인한다.
 
 ## PoC 합격 조건
 

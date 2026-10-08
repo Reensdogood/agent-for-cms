@@ -113,6 +113,6 @@ PoC에서 재부팅마다 USB 권한창이 나타나거나 제조사 절전 기�
 
 ## 8. 인터넷 현장 원격 관리 VPN 시험
 
-앱의 **Tailscale 설치 또는 실행**을 선택한다. 최초 실행에서는 알 수 없는 앱 설치, Tailscale 설치, VPN 연결을 순서대로 승인한다. 관리자 PC도 같은 Tailnet에 연결한 뒤 A10에 할당된 VPN 주소의 `https://VPN-IP/`로 Yealink 관리페이지가 열리는지 확인한다.
+1.1.1 이상 앱에서 **Tailscale 설치 또는 실행**을 선택한다. APK는 브라우저 없이 내려받아 Android `PackageInstaller`로 전달된다. 최초 실행에서는 알 수 없는 앱 설치, Tailscale 설치, VPN 연결을 순서대로 승인한다. 설치 화면이 나타나지 않으면 **VPN 상태 새로고침**을 눌러 표시되는 설치 단계 또는 실패 코드를 진단 자료로 수집한다. 관리자 PC도 같은 Tailnet에 연결한 뒤 A10에 할당된 VPN 주소의 `https://VPN-IP/`로 Yealink 관리페이지가 열리는지 확인한다.
 
 상세 합격 조건과 NetBird 자체 호스팅 전환안은 `docs/a10-vpn-poc-and-self-hosting.md`를 따른다. VPN이 연결됐는데도 443이 열리지 않으면 A10 내부 앱 방식은 중단하고 현장 LAN 게이트웨이 방식을 사용한다.

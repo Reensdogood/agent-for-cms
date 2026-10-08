@@ -67,6 +67,10 @@ public final class SettingsStore {
     public String status() { return preferences.getString("status", "설정 대기"); }
     public void status(String value) { preferences.edit().putString("status", value).apply(); }
     public String powerStatus() { return preferences.getString("powerStatus", "절전 감시 대기"); }
+    public String vpnInstallStatus() { return preferences.getString("vpnInstallStatus", "설치 대기"); }
+    public void vpnInstallStatus(String value) { preferences.edit().putString("vpnInstallStatus", value).apply(); }
+    public long tailscaleDownloadId() { return preferences.getLong("tailscaleDownloadId", -1L); }
+    public void tailscaleDownloadId(long value) { preferences.edit().putLong("tailscaleDownloadId", value).apply(); }
     public long lastWakeAt() { return preferences.getLong("lastWakeAt", 0L); }
     public void powerEvent(String value) {
         preferences.edit()

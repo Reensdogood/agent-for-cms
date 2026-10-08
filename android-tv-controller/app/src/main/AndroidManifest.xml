@@ -70,5 +70,10 @@
             android:name=".service.WakeWatchdogReceiver"
             android:enabled="true"
             android:exported="false" />
+
+        <receiver
+            android:name=".network.PackageInstallReceiver"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 </manifest>

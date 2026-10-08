@@ -21,6 +21,7 @@ public final class VpnDiagnostics {
         JSONObject result = new JSONObject()
                 .put("provider", "tailscale")
                 .put("packageName", TailscaleInstaller.PACKAGE_NAME)
+                .put("installStatus", new kr.funnet.tvcontroller.data.SettingsStore(context).vpnInstallStatus())
                 .put("installed", TailscaleInstaller.isInstalled(context))
                 .put("active", false)
                 .put("vpnTransportActive", false)
@@ -59,7 +60,8 @@ public final class VpnDiagnostics {
     public static String summary(Context context) {
         try {
             JSONObject state = snapshot(context);
-            if (!state.getBoolean("installed")) return "Tailscale 미설치 · 공식 APK 설치가 필요합니다.";
+            String installStatus = new kr.funnet.tvcontroller.data.SettingsStore(context).vpnInstallStatus();
+            if (!state.getBoolean("installed")) return "Tailscale 미설치 · " + installStatus;
             if (!state.getBoolean("active")) return "Tailscale 설치됨 · VPN 연결 대기";
             String address = state.optString("primaryAddress", "");
             return "VPN 연결됨" + (address.isBlank() ? "" : " · " + address);

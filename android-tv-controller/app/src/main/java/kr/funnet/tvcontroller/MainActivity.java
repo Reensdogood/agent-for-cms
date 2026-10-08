@@ -40,12 +40,11 @@ public final class MainActivity extends Activity {
     private Spinner tvModel;
     private TextView status;
     private TextView vpnStatus;
-    private long tailscaleDownloadId = -1L;
     private final BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (DownloadManager.ACTION_DOWNLOAD_COMPLETE.equals(intent.getAction())
-                    && intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) == tailscaleDownloadId) {
-                TailscaleInstaller.installDownloaded(MainActivity.this, tailscaleDownloadId);
+                    && intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) == store.tailscaleDownloadId()) {
+                TailscaleInstaller.resumePendingInstall(MainActivity.this);
             }
         }
     };
@@ -65,6 +64,9 @@ public final class MainActivity extends Activity {
         super.onResume();
         status.setText(statusText());
         vpnStatus.setText(VpnDiagnostics.summary(this));
+        if (!TailscaleInstaller.isInstalled(this) && store.tailscaleDownloadId() >= 0) {
+            TailscaleInstaller.resumePendingInstall(this);
+        }
     }
 
     @Override protected void onDestroy() {
@@ -129,8 +131,11 @@ public final class MainActivity extends Activity {
                 if (!TailscaleInstaller.launch(this)) toast("Tailscale 앱을 실행할 수 없습니다.");
                 return;
             }
-            tailscaleDownloadId = TailscaleInstaller.download(this);
-            if (tailscaleDownloadId >= 0) toast("공식 Tailscale APK를 다운로드합니다. 완료 후 설치를 승인해 주세요.");
+            long downloadId = TailscaleInstaller.download(this);
+            if (downloadId >= 0) {
+                vpnStatus.setText(VpnDiagnostics.summary(this));
+                toast("공식 Tailscale APK를 다운로드합니다. 완료 후 설치를 승인해 주세요.");
+            }
         });
         root.addView(tailscale);
 
