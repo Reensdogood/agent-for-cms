@@ -834,7 +834,11 @@ $("#refreshBuildJobs")?.addEventListener("click", () => loadBuildJobs().catch(ha
 $("#requestBuildButton")?.addEventListener("click", async (event) => {
   const button = event.currentTarget; button.disabled = true;
   try {
-    await api("/api/build-jobs", { method: "POST", body: JSON.stringify({ regionId: $("#buildRegion").value, productType: $("#buildProduct").value, version: $("#buildVersion").value.trim(), tvModel: $("#buildTvModel").value }) });
+    const regionId = $("#buildRegion").value;
+    const productType = $("#buildProduct").value;
+    if (!regionId) throw new Error("빌드 대상 지역을 선택해 주세요.");
+    if (!productType) throw new Error("Windows용 또는 A10용을 선택해 주세요.");
+    await api("/api/build-jobs", { method: "POST", body: JSON.stringify({ regionId, productType, version: $("#buildVersion").value.trim(), tvModel: productType === "meetingbar_a10" ? $("#buildTvModel").value : null }) });
     await loadBuildJobs(); toast("빌드 요청을 등록했습니다. 전용 PC가 자동으로 작업을 시작합니다.");
   } catch (error) { handleError(error); } finally { button.disabled = false; }
 });
